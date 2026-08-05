@@ -1,0 +1,1118 @@
+import os
+import configparser
+import logging
+from typing import List, Optional
+from decimal import Decimal
+import fdb
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("os_ajustes")
+
+def get_teste_ini_path():
+    if os.path.exists(r"c:\DataWebTeste\Dilab\Db.ini"):
+        return r"c:\DataWebTeste\Dilab\Db.ini"
+    if os.path.exists(r"c:\DataWenTeste\Dilab\Db.ini"):
+        return r"c:\DataWenTeste\Dilab\Db.ini"
+    return r"c:\dataweb\Dilab\db.ini"
+
+def get_preset_dbs():
+    return {
+        "producao": {
+            "key": "producao",
+            "name": r"Produção (c:\dataweb\Dilab\db.ini)",
+            "ini_path": r"c:\dataweb\Dilab\db.ini"
+        }
+    }
+
+ACTIVE_DB_KEY = "producao"
+CUSTOM_INI_PATH = None
+
+def get_active_ini_path():
+    global ACTIVE_DB_KEY, CUSTOM_INI_PATH
+    presets = get_preset_dbs()
+    if ACTIVE_DB_KEY == "custom" and CUSTOM_INI_PATH:
+        return CUSTOM_INI_PATH
+    if ACTIVE_DB_KEY in presets:
+        return presets[ACTIVE_DB_KEY]["ini_path"]
+    return r"c:\dataweb\Dilab\db.ini"
+
+def get_db_config(ini_path=None):
+    path_to_use = ini_path or get_active_ini_path()
+    if not os.path.exists(path_to_use):
+        raise RuntimeError(f"Arquivo db.ini não encontrado em '{path_to_use}'")
+    
+    # Se o caminho informado for diretamente o arquivo do banco Firebird (.DATAWEB / .FDB)
+    if path_to_use.lower().endswith(('.fdb', '.dataweb')):
+        return "SRVDW", path_to_use, path_to_use
+
+    config = configparser.ConfigParser()
+    config.read(path_to_use)
+    server = config.get("Main", "DbServerName", fallback="SRVDW")
+    database = config.get("Main", "DbDatabaseName", fallback="")
+    return server, database, path_to_use
+
+def get_db_connection(ini_path=None):
+    server, database, _ = get_db_config(ini_path)
+    return fdb.connect(
+        host=server,
+        database=database,
+        user="SYSDBA",
+        password="masterkey",
+        charset="WIN1252"
+    )
+
+app = FastAPI(title="Sistema de Ajuste de Ordem de Serviço", version="1.2.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Models
+class ItemUpdateModel(BaseModel):
+    cod_transacaoitem: int
+    cod_item: str
+    descricao: Optional[str] = ""
+    quantidade: float
+    valorunitario: float
+    total: float
+    valordesconto: Optional[float] = 0.0
+    cod_naturezaoperacao: Optional[str] = None
+    aliquotaicms: Optional[float] = 0.0
+    basecalculoicms: Optional[float] = 0.0
+    totalicms: Optional[float] = 0.0
+    tributacaoicms: Optional[str] = "00"
+    totalissqn: Optional[float] = 0.0
+    aliquotaissqn: Optional[float] = 0.0
+    totalipi: Optional[float] = 0.0
+    aliquotapi: Optional[float] = 0.0
+    totalpis: Optional[float] = 0.0
+    aliquotapis: Optional[float] = 0.0
+    totalcofins: Optional[float] = 0.0
+    aliquotacofins: Optional[float] = 0.0
+    totalicmssubstituicao: Optional[float] = 0.0
+
+class OSUpdateModel(BaseModel):
+    cod_ordemservico: int
+    cod_empresa: int
+    cod_naturezaoperacao: Optional[str] = None
+    total_icms: float
+    total_issqn: Optional[float] = 0.0
+    total_ipi: Optional[float] = 0.0
+    total_pis: Optional[float] = 0.0
+    total_cofins: Optional[float] = 0.0
+    total_icms_st: Optional[float] = 0.0
+    total: float
+    valordesconto: Optional[float] = 0.0
+    items: List[ItemUpdateModel]
+
+class SelectDBModel(BaseModel):
+    db_key: str
+    custom_path: Optional[str] = None
+
+@app.get("/api/databases")
+def get_databases():
+    presets = get_preset_dbs()
+    result = []
+    for key, db_info in presets.items():
+        exists = os.path.exists(db_info["ini_path"])
+        result.append({
+            "key": key,
+            "name": db_info["name"],
+            "ini_path": db_info["ini_path"],
+            "exists": exists,
+            "active": (ACTIVE_DB_KEY == key)
+        })
+    if CUSTOM_INI_PATH:
+        result.append({
+            "key": "custom",
+            "name": f"Customizado ({CUSTOM_INI_PATH})",
+            "ini_path": CUSTOM_INI_PATH,
+            "exists": os.path.exists(CUSTOM_INI_PATH),
+            "active": (ACTIVE_DB_KEY == "custom")
+        })
+    return {
+        "active_key": ACTIVE_DB_KEY,
+        "active_path": get_active_ini_path(),
+        "databases": result
+    }
+
+@app.post("/api/databases/select")
+def select_database(data: SelectDBModel):
+    global ACTIVE_DB_KEY, CUSTOM_INI_PATH
+    
+    presets = get_preset_dbs()
+    target_key = data.db_key
+    target_path = None
+    
+    if target_key == "custom":
+        if not data.custom_path or not data.custom_path.strip():
+            raise HTTPException(status_code=400, detail="Caminho do arquivo .ini customizado é obrigatório.")
+        target_path = data.custom_path.strip()
+    elif target_key in presets:
+        target_path = presets[target_key]["ini_path"]
+    else:
+        raise HTTPException(status_code=400, detail=f"Ambiente de banco de dados '{target_key}' é inválido.")
+        
+    if not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail=f"O arquivo de configuração db.ini não existe no caminho: '{target_path}'")
+        
+    try:
+        server, database, used_path = get_db_config(target_path)
+        conn = fdb.connect(host=server, database=database, user="SYSDBA", password="masterkey", charset="WIN1252")
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM ORDEMSERVICO")
+        count = cur.fetchone()[0]
+        conn.close()
+        
+        ACTIVE_DB_KEY = target_key
+        if target_key == "custom":
+            CUSTOM_INI_PATH = target_path
+            
+        logger.info(f"Banco de dados alterado para '{ACTIVE_DB_KEY}' ({used_path}) -> {server}:{database}")
+        return {
+            "status": "success",
+            "message": f"Banco de dados alterado para: {database}",
+            "active_key": ACTIVE_DB_KEY,
+            "server": server,
+            "database": database,
+            "total_os": count,
+            "ini_path": used_path
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao conectar no banco '{target_path}': {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao conectar no Firebird ({target_path}): {str(e)}")
+
+@app.get("/api/status")
+def get_status():
+    try:
+        server, database, ini_path = get_db_config()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM ORDEMSERVICO")
+        count = cur.fetchone()[0]
+        conn.close()
+        return {
+            "status": "connected",
+            "active_key": ACTIVE_DB_KEY,
+            "ini_path": ini_path,
+            "server": server,
+            "database": database,
+            "total_os": count
+        }
+    except Exception as e:
+        logger.error(f"Erro ao testar conexão: {e}")
+        return {
+            "status": "error",
+            "active_key": ACTIVE_DB_KEY,
+            "ini_path": get_active_ini_path(),
+            "error": str(e)
+        }
+
+@app.get("/api/naturezas")
+def get_naturezas():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COD_NATUREZAOPERACAO, DESCRICAO 
+            FROM NATUREZAOPERACAO 
+            WHERE ATIVO = 'T' OR ATIVO = 'S' OR ATIVO IS NULL OR ATIVO = '1'
+            ORDER BY COD_NATUREZAOPERACAO
+        """)
+        rows = cur.fetchall()
+        conn.close()
+        return [
+            {"cod": r[0].strip() if r[0] else "", "descricao": r[1].strip() if r[1] else ""}
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"Erro ao buscar naturezas de operação: {e}")
+        return []
+
+@app.get("/api/clientes/autocomplete")
+def autocomplete_clientes(
+    q: str = Query(..., min_length=1, description="Termo para busca de cliente"),
+    limit: int = Query(15, ge=1, le=50)
+):
+    try:
+        q_clean = str(q).strip() if q else ""
+        if not q_clean or len(q_clean) < 1:
+            return []
+            
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        limit_val = int(limit) if isinstance(limit, (int, float, str)) else 15
+        
+        sql = f"""
+            SELECT FIRST {limit_val}
+                p.COD_PESSOA,
+                CAST(p.NOME AS VARCHAR(250)),
+                CAST(p.RAZAOSOCIAL AS VARCHAR(250)),
+                p.CNPJ,
+                p.CPF,
+                p.IDENTIFICADOR
+            FROM PESSOA p
+        """
+        
+        where_clauses = ["(p.ATIVO = 'T' OR p.ATIVO = 'S' OR p.ATIVO IS NULL OR p.ATIVO = '1')"]
+        params = []
+        
+        if q_clean.isdigit():
+            where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR UPPER(p.NOME) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ? OR p.CNPJ LIKE ? OR p.CPF LIKE ?)")
+            param_str = f"%{q_clean}%"
+            params.extend([param_str, param_str, int(q_clean), int(q_clean), param_str, param_str])
+        else:
+            where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR UPPER(p.NOME) LIKE UPPER(?) OR p.CNPJ LIKE ? OR p.CPF LIKE ?)")
+            param_str = f"%{q_clean}%"
+            params.extend([param_str, param_str, param_str, param_str])
+            
+        sql += " WHERE " + " AND ".join(where_clauses)
+        sql += " ORDER BY COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), p.NOME)"
+        
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+        
+        result = []
+        for r in rows:
+            cod = r[0]
+            nome = r[1].strip() if r[1] else ""
+            razao = r[2].strip() if r[2] else ""
+            cnpj = r[3].strip() if r[3] else ""
+            cpf = r[4].strip() if r[4] else ""
+            identificador = r[5] if (len(r) > 5 and r[5] is not None) else cod
+            
+            display_name = razao if razao else (nome if nome else f"Cliente {cod}")
+            doc = cnpj if cnpj else (cpf if cpf else "")
+            
+            result.append({
+                "cod_pessoa": cod,
+                "identificador": identificador,
+                "nome": nome,
+                "razaosocial": razao,
+                "display_name": display_name,
+                "doc": doc,
+                "label": f"Cód: {identificador} (ID: #{cod}) - {display_name}" + (f" ({doc})" if doc else "")
+            })
+            
+        return result
+    except Exception as e:
+        logger.error(f"Erro ao buscar autocompletar clientes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/os")
+def list_os(
+    search: Optional[str] = Query(None, description="Número da OS ou código"),
+    cliente: Optional[str] = Query(None, description="Filtro por nome, razão social ou documento do cliente"),
+    data_inicio: Optional[str] = Query(None, description="Data inicial YYYY-MM-DD"),
+    data_fim: Optional[str] = Query(None, description="Data final YYYY-MM-DD"),
+    limit: int = Query(30, ge=1, le=200)
+):
+    try:
+        limit_val = int(limit) if isinstance(limit, (int, str, float)) else 30
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        sql = f"""
+            SELECT FIRST {limit_val} 
+                os.COD_ORDEMSERVICO, os.COD_EMPRESA, os.NUMEROORDEMSERVICO,
+                t.COD_PESSOA, CAST(p.NOME AS VARCHAR(250)), CAST(p.RAZAOSOCIAL AS VARCHAR(250)),
+                t.COD_NATUREZAOPERACAO, CAST(nat.DESCRICAO AS VARCHAR(250)) AS NATUREZA_DESCRICAO,
+                t.TOTAL, t.TOTALPRODUTOS, t.TOTALSERVICOS, t.TOTALICMS,
+                s.VALORDESCONTO, t.DATAEMISSAO, p.IDENTIFICADOR
+            FROM ORDEMSERVICO os
+            JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
+            JOIN TRANSACAO t ON t.COD_TRANSACAO = s.COD_SAIDA AND t.COD_EMPRESA = os.COD_EMPRESA
+            LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+        """
+        
+        params = []
+        where_clauses = []
+
+        if search is not None and isinstance(search, str) and search.strip():
+            search_clean = search.strip()
+            if search_clean.isdigit():
+                where_clauses.append("(os.NUMEROORDEMSERVICO = ? OR os.COD_ORDEMSERVICO = ?)")
+                params.extend([int(search_clean), int(search_clean)])
+            else:
+                where_clauses.append("(UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))")
+                s_param = f"%{search_clean}%"
+                params.extend([s_param, s_param])
+
+        if cliente is not None and isinstance(cliente, str) and cliente.strip():
+            client_clean = cliente.strip()
+            if client_clean.isdigit():
+                where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR UPPER(p.NOME) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ?)")
+                c_param = f"%{client_clean}%"
+                params.extend([c_param, c_param, int(client_clean), int(client_clean)])
+            else:
+                where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR UPPER(p.NOME) LIKE UPPER(?))")
+                c_param = f"%{client_clean}%"
+                params.extend([c_param, c_param])
+
+        if data_inicio is not None and isinstance(data_inicio, str) and data_inicio.strip():
+            where_clauses.append("t.DATAEMISSAO >= ?")
+            params.append(data_inicio.strip())
+
+        if data_fim is not None and isinstance(data_fim, str) and data_fim.strip():
+            where_clauses.append("t.DATAEMISSAO <= ?")
+            params.append(data_fim.strip())
+
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+            
+        sql += " ORDER BY os.COD_ORDEMSERVICO DESC"
+        
+        if params:
+            cur.execute(sql, tuple(params))
+        else:
+            cur.execute(sql)
+        rows = cur.fetchall()
+        conn.close()
+        
+        result = []
+        for r in rows:
+            identificador = r[14] if (len(r) > 14 and r[14] is not None) else r[3]
+            nome_clean = (r[5] or r[4] or '').strip() if (r[5] or r[4]) else f"Cliente {r[3]}"
+            display_cliente = f"[{identificador}] {nome_clean}" if identificador else nome_clean
+
+            result.append({
+                "cod_ordemservico": r[0],
+                "cod_empresa": r[1],
+                "numero_os": r[2],
+                "cod_pessoa": r[3],
+                "cliente_identificador": identificador,
+                "cliente_nome": display_cliente,
+                "cod_naturezaoperacao": r[6].strip() if r[6] else "",
+                "natureza_descricao": r[7].strip() if r[7] else "",
+                "total": float(r[8]) if r[8] is not None else 0.0,
+                "total_produtos": float(r[9]) if r[9] is not None else 0.0,
+                "total_servicos": float(r[10]) if r[10] is not None else 0.0,
+                "total_icms": float(r[11]) if r[11] is not None else 0.0,
+                "valor_desconto": float(r[12]) if r[12] is not None else 0.0,
+                "data_emissao": str(r[13]) if r[13] else None
+            })
+        return result
+    except Exception as e:
+        logger.error(f"Erro ao listar OS: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/os/{cod_os}")
+def get_os_detail(cod_os: int, cod_empresa: int = 1):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Header
+        cur.execute("""
+            SELECT 
+                os.COD_ORDEMSERVICO, os.COD_EMPRESA, os.NUMEROORDEMSERVICO,
+                t.COD_PESSOA, p.NOME AS CLIENTE_NOME,
+                t.COD_NATUREZAOPERACAO, nat.DESCRICAO AS NATUREZA_DESCRICAO,
+                t.TOTAL, t.TOTALPRODUTOS, t.TOTALSERVICOS, t.TOTALICMS,
+                s.VALORDESCONTO, t.DATAEMISSAO,
+                t.TOTALISSQN, t.TOTALIPI, t.TOTALPIS, t.TOTALCOFINS, t.TOTALICMSSUBSTITUICAO
+            FROM ORDEMSERVICO os
+            JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
+            JOIN TRANSACAO t ON t.COD_TRANSACAO = s.COD_SAIDA AND t.COD_EMPRESA = os.COD_EMPRESA
+            LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            WHERE os.COD_ORDEMSERVICO = ? AND os.COD_EMPRESA = ?
+        """, (cod_os, cod_empresa))
+        
+        header_row = cur.fetchone()
+        if not header_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Ordem de Serviço {cod_os} não encontrada.")
+            
+        header = {
+            "cod_ordemservico": header_row[0],
+            "cod_empresa": header_row[1],
+            "numero_os": header_row[2],
+            "cod_pessoa": header_row[3],
+            "cliente_nome": header_row[4].strip() if header_row[4] else "N/A",
+            "cod_naturezaoperacao": header_row[5].strip() if header_row[5] else "",
+            "natureza_descricao": header_row[6].strip() if header_row[6] else "",
+            "total": float(header_row[7]) if header_row[7] is not None else 0.0,
+            "total_produtos": float(header_row[8]) if header_row[8] is not None else 0.0,
+            "total_servicos": float(header_row[9]) if header_row[9] is not None else 0.0,
+            "total_icms": float(header_row[10]) if header_row[10] is not None else 0.0,
+            "valor_desconto": float(header_row[11]) if header_row[11] is not None else 0.0,
+            "data_emissao": str(header_row[12]) if header_row[12] else None,
+            "total_issqn": float(header_row[13]) if header_row[13] is not None else 0.0,
+            "total_ipi": float(header_row[14]) if header_row[14] is not None else 0.0,
+            "total_pis": float(header_row[15]) if header_row[15] is not None else 0.0,
+            "total_cofins": float(header_row[16]) if header_row[16] is not None else 0.0,
+            "total_icms_st": float(header_row[17]) if header_row[17] is not None else 0.0
+        }
+        
+        # Items
+        cur.execute("""
+            SELECT 
+                ti.COD_TRANSACAOITEM, ti.COD_ITEM, ti.DESCRICAO,
+                ti.QUANTIDADE, ti.VALORUNITARIO, ti.TOTAL, ti.VALORDESCONTO,
+                ti.COD_NATUREZAOPERACAO, nat.DESCRICAO AS NATUREZA_DESCRICAO,
+                ti.ALIQUOTAICMS, ti.BASECALCULOICMS, ti.TOTALICMS, ti.TRIBUTACAOICMS,
+                ti.TOTALISSQN, ti.ALIQUOTAISSQN, ti.TOTALIPI, ti.ALIQUOTAIPI,
+                ti.TOTALPIS, ti.ALIQUOTAPIS, ti.TOTALCOFINS, ti.ALIQUOTACOFINS,
+                ti.TOTALICMSSUBSTITUICAO, ti.VALORORIGINAL,
+                pf_direct.PRECO AS FAMILIA_DIRECT_PRECO,
+                pf_prod.PRECO AS FAMILIA_PROD_PRECO,
+                i.PRECOVENDA AS ITEM_PRECOVENDA
+            FROM TRANSACAO_ITEM ti
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = ti.COD_NATUREZAOPERACAO
+            LEFT JOIN PRODUTOFAMILIA pf_direct ON pf_direct.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
+            LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
+            LEFT JOIN PRODUTO p ON CAST(p.COD_PRODUTO AS VARCHAR(20)) = TRIM(ti.COD_ITEM)
+            LEFT JOIN PRODUTOFAMILIA pf_prod ON pf_prod.COD_PRODUTOFAMILIA = p.COD_PRODUTOFAMILIA
+            WHERE ti.COD_TRANSACAO = ? AND ti.COD_EMPRESA = ?
+            ORDER BY ti.COD_TRANSACAOITEM
+        """, (cod_os, cod_empresa))
+        
+        item_rows = cur.fetchall()
+        conn.close()
+        
+        items = []
+        for ir in item_rows:
+            qtd = float(ir[3]) if ir[3] is not None else 0.0
+            vunit = float(ir[4]) if ir[4] is not None else 0.0
+            val_total = float(ir[5]) if ir[5] is not None else 0.0
+            val_desc_raw = float(ir[6]) if ir[6] is not None else 0.0
+            val_orig_raw = float(ir[22]) if len(ir) > 22 and ir[22] is not None and float(ir[22]) > 0 else 0.0
+            fam_direct_preco = float(ir[23]) if len(ir) > 23 and ir[23] is not None and float(ir[23]) > 0 else 0.0
+            fam_prod_preco = float(ir[24]) if len(ir) > 24 and ir[24] is not None and float(ir[24]) > 0 else 0.0
+            item_precovenda = float(ir[25]) if len(ir) > 25 and ir[25] is not None and float(ir[25]) > 0 else 0.0
+
+            # Priority for original unit list price (Preço de Venda da Família da Lente):
+            # 1. Direct item transaction lens family price (pf_direct.PRECO)
+            # 2. Product lens family price (pf_prod.PRECO)
+            # 3. Item catalog sales price (i.PRECOVENDA)
+            # 4. Item transaction original price (ti.VALORORIGINAL)
+            # 5. Net unit price + discount per unit
+            if fam_direct_preco > 0:
+                vunit_orig = fam_direct_preco
+            elif fam_prod_preco > 0:
+                vunit_orig = fam_prod_preco
+            elif item_precovenda > 0:
+                vunit_orig = item_precovenda
+            elif val_orig_raw > 0:
+                vunit_orig = val_orig_raw
+            else:
+                vunit_orig = vunit + (val_desc_raw / qtd if qtd > 0 else 0.0)
+
+            total_bruto = vunit_orig * qtd
+            val_desc = max(0.0, total_bruto - val_total)
+            pct_desc = (val_desc / total_bruto * 100.0) if total_bruto > 0 else 0.0
+
+            items.append({
+                "cod_transacaoitem": ir[0],
+                "cod_item": ir[1].strip() if ir[1] else "",
+                "descricao": ir[2].strip() if ir[2] else "",
+                "quantidade": qtd,
+                "valorunitario": vunit,
+                "total": val_total,
+                "valordesconto": val_desc,
+                "valor_original": vunit_orig,
+                "percentual_desconto": pct_desc,
+                "cod_naturezaoperacao": ir[7].strip() if ir[7] else "",
+                "natureza_descricao": ir[8].strip() if ir[8] else "",
+                "aliquotaicms": float(ir[9]) if ir[9] is not None else 0.0,
+                "basecalculoicms": float(ir[10]) if ir[10] is not None else 0.0,
+                "totalicms": float(ir[11]) if ir[11] is not None else 0.0,
+                "tributacaoicms": ir[12].strip() if ir[12] else "00",
+                "totalissqn": float(ir[13]) if ir[13] is not None else 0.0,
+                "aliquotaissqn": float(ir[14]) if ir[14] is not None else 0.0,
+                "totalipi": float(ir[15]) if ir[15] is not None else 0.0,
+                "aliquotapi": float(ir[16]) if ir[16] is not None else 0.0,
+                "totalpis": float(ir[17]) if ir[17] is not None else 0.0,
+                "aliquotapis": float(ir[18]) if ir[18] is not None else 0.0,
+                "totalcofins": float(ir[19]) if ir[19] is not None else 0.0,
+                "aliquotacofins": float(ir[20]) if ir[20] is not None else 0.0,
+                "totalicmssubstituicao": float(ir[21]) if ir[21] is not None else 0.0
+            })
+            
+        return {
+            "header": header,
+            "items": items
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao buscar detalhes da OS {cod_os}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/os/{cod_os}")
+def update_os(cod_os: int, data: OSUpdateModel):
+    if cod_os != data.cod_ordemservico:
+        raise HTTPException(status_code=400, detail="Código da OS na URL não coincide com o corpo da requisição.")
+        
+    logger.info(f"Atualizando OS {cod_os} no banco '{ACTIVE_DB_KEY}': Total OS = R$ {data.total:.2f}, ICMS = R$ {data.total_icms:.2f}, ISS = R$ {(data.total_issqn or 0):.2f}, IPI = R$ {(data.total_ipi or 0):.2f}, PIS = R$ {(data.total_pis or 0):.2f}, COFINS = R$ {(data.total_cofins or 0):.2f}")
+    
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor()
+        
+        # 1. Update Header TRANSACAO (Totais Globais de Tributos & Operação Fiscal)
+        cur.execute("""
+            UPDATE TRANSACAO
+            SET COD_NATUREZAOPERACAO = ?,
+                TOTALICMS = ?,
+                TOTALISSQN = ?,
+                TOTALIPI = ?,
+                TOTALPIS = ?,
+                TOTALCOFINS = ?,
+                TOTALICMSSUBSTITUICAO = ?,
+                TOTAL = ?
+            WHERE COD_TRANSACAO = ? AND COD_EMPRESA = ?
+        """, (
+            data.cod_naturezaoperacao if data.cod_naturezaoperacao else None,
+            Decimal(f"{data.total_icms:.4f}"),
+            Decimal(f"{(data.total_issqn or 0.0):.4f}"),
+            Decimal(f"{(data.total_ipi or 0.0):.4f}"),
+            Decimal(f"{(data.total_pis or 0.0):.4f}"),
+            Decimal(f"{(data.total_cofins or 0.0):.4f}"),
+            Decimal(f"{(data.total_icms_st or 0.0):.4f}"),
+            Decimal(f"{data.total:.4f}"),
+            data.cod_ordemservico,
+            data.cod_empresa
+        ))
+        
+        # 2. Update Header SAIDA (Desconto)
+        cur.execute("""
+            UPDATE SAIDA
+            SET VALORDESCONTO = ?
+            WHERE COD_SAIDA = ? AND COD_EMPRESA = ?
+        """, (
+            Decimal(f"{(data.valordesconto or 0.0):.4f}"),
+            data.cod_ordemservico,
+            data.cod_empresa
+        ))
+        
+        # 3. Update Items (Valores, CFOP, ICMS, ISSQN, IPI, PIS, COFINS, ST)
+        for item in data.items:
+            cur.execute("""
+                UPDATE TRANSACAO_ITEM
+                SET DESCRICAO = ?,
+                    QUANTIDADE = ?,
+                    VALORUNITARIO = ?,
+                    TOTAL = ?,
+                    COD_NATUREZAOPERACAO = ?,
+                    ALIQUOTAICMS = ?,
+                    BASECALCULOICMS = ?,
+                    TOTALICMS = ?,
+                    TRIBUTACAOICMS = ?,
+                    TOTALISSQN = ?,
+                    ALIQUOTAISSQN = ?,
+                    TOTALIPI = ?,
+                    ALIQUOTAIPI = ?,
+                    TOTALPIS = ?,
+                    ALIQUOTAPIS = ?,
+                    TOTALCOFINS = ?,
+                    ALIQUOTACOFINS = ?,
+                    TOTALICMSSUBSTITUICAO = ?
+                WHERE COD_TRANSACAO = ? AND COD_EMPRESA = ? AND COD_TRANSACAOITEM = ?
+            """, (
+                item.descricao,
+                Decimal(f"{item.quantidade:.4f}"),
+                Decimal(f"{item.valorunitario:.4f}"),
+                Decimal(f"{item.total:.4f}"),
+                item.cod_naturezaoperacao if item.cod_naturezaoperacao else None,
+                Decimal(f"{(item.aliquotaicms or 0.0):.4f}"),
+                Decimal(f"{(item.basecalculoicms or 0.0):.4f}"),
+                Decimal(f"{(item.totalicms or 0.0):.4f}"),
+                item.tributacaoicms if item.tributacaoicms else "00",
+                Decimal(f"{(item.totalissqn or 0.0):.4f}"),
+                Decimal(f"{(item.aliquotaissqn or 0.0):.4f}"),
+                Decimal(f"{(item.totalipi or 0.0):.4f}"),
+                Decimal(f"{(item.aliquotapi or 0.0):.4f}"),
+                Decimal(f"{(item.totalpis or 0.0):.4f}"),
+                Decimal(f"{(item.aliquotapis or 0.0):.4f}"),
+                Decimal(f"{(item.totalcofins or 0.0):.4f}"),
+                Decimal(f"{(item.aliquotacofins or 0.0):.4f}"),
+                Decimal(f"{(item.totalicmssubstituicao or 0.0):.4f}"),
+                data.cod_ordemservico,
+                data.cod_empresa,
+                item.cod_transacaoitem
+            ))
+            
+        conn.commit()
+        conn.close()
+        logger.info(f"OS {cod_os} atualizada com sucesso no Firebird!")
+        return {"status": "success", "message": f"Ordem de Serviço #{data.cod_ordemservico} atualizada com sucesso no banco de dados!"}
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        logger.error(f"Erro ao atualizar OS {cod_os}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar no banco de dados: {str(e)}")
+
+ENQUADRAMENTO_MAP = {
+    0: "Nenhum",
+    1: "Simples Nacional",
+    2: "Outro",
+    3: "MEI"
+}
+
+@app.get("/api/clientes")
+def get_clientes_report(
+    search: Optional[str] = Query(None, description="Busca por Nome, Razão Social, CNPJ ou IE"),
+    enquadramento: Optional[str] = Query(None, description="todos, 0, 1, 2, 3")
+):
+    try:
+        search_str = search.strip() if isinstance(search, str) and search.strip() else None
+        enq_str = enquadramento.strip() if isinstance(enquadramento, str) and enquadramento.strip() else None
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        sql = """
+            SELECT 
+                p.COD_PESSOA,
+                COALESCE(p.RAZAOSOCIAL, p.NOME, '') AS RAZAOSOCIAL,
+                COALESCE(p.NOME, '') AS NOMEFANTASIA,
+                COALESCE(p.CNPJ, p.CPF, '') AS DOCUMENTO,
+                COALESCE(p.IE, 'ISENTO') AS IE,
+                COALESCE(c.ENQUADRAMENTOFISCAL, 0) AS ENQUADRAMENTOFISCAL
+            FROM PESSOA p
+            LEFT JOIN CLIENTE c ON c.COD_CLIENTE = p.COD_PESSOA
+            WHERE (p.ATIVO = 'T' OR p.ATIVO = 'S' OR p.ATIVO = '1')
+              AND (p.PESSOACLIENTE = 'T' OR p.PESSOACLIENTE = 'S' OR p.PESSOACLIENTE = '1')
+        """
+        
+        params = []
+        if enq_str and enq_str != 'todos' and enq_str.isdigit():
+            sql += " AND COALESCE(c.ENQUADRAMENTOFISCAL, 0) = ?"
+            params.append(int(enq_str))
+            
+        if search_str:
+            s = f"%{search_str.upper()}%"
+            sql += """ AND (
+                UPPER(p.RAZAOSOCIAL) LIKE ? OR 
+                UPPER(p.NOME) LIKE ? OR 
+                p.CNPJ LIKE ? OR 
+                p.CPF LIKE ? OR 
+                UPPER(p.IE) LIKE ?
+            )"""
+            params.extend([s, s, s, s, s])
+            
+        sql += " ORDER BY COALESCE(p.RAZAOSOCIAL, p.NOME)"
+        
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+        
+        result = []
+        for r in rows:
+            cod_pessoa = r[0]
+            razaosocial = r[1].strip() if r[1] else ""
+            nomefantasia = r[2].strip() if r[2] else ""
+            documento = r[3].strip() if r[3] else ""
+            ie = r[4].strip() if r[4] else "ISENTO"
+            enq_code = r[5]
+            enq_desc = ENQUADRAMENTO_MAP.get(enq_code, "Nenhum")
+            
+            result.append({
+                "cod_pessoa": cod_pessoa,
+                "razao_social": razaosocial,
+                "nome_fantasia": nomefantasia,
+                "cnpj_cpf": documento,
+                "ie": ie,
+                "enquadramento_codigo": enq_code,
+                "enquadramento_descricao": enq_desc
+            })
+            
+        return result
+    except Exception as e:
+        logger.error(f"Erro ao gerar relatório de clientes por enquadramento fiscal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+TIPO_OPERACAO_MAP = {
+    1: "🛒 Vendas",
+    2: "📥 Compras / Entradas",
+    3: "🔄 Devoluções e Trocas",
+    4: "🚚 Transferências",
+    5: "📦 Empréstimos e Demonstração",
+    6: "🎁 Amostra Grátis",
+    8: "🛠️ Remessas e Serviços",
+    9: "🎁 Bonificação, Doação e Brindes",
+    10: "🏭 Industrialização / Encomenda",
+    11: "📅 Vendas p/ Entrega Futura",
+    12: "🏢 Venda de Imobilizado / Ativo",
+    13: "⚠️ Baixa / Perda / Roubo",
+    14: "🛡️ Remessa / Troca em Garantia",
+    15: "↩️ Retorno de Insumos",
+    21: "🤝 Remessa por Conta e Ordem"
+}
+
+@app.get("/api/tipos-natureza")
+def get_tipos_natureza():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT TIPO
+            FROM NATUREZAOPERACAO
+            WHERE TIPO IS NOT NULL
+            ORDER BY TIPO
+        """)
+        rows = cur.fetchall()
+        conn.close()
+        
+        result = []
+        for r in rows:
+            tipo_id = r[0]
+            if tipo_id is not None:
+                nome = TIPO_OPERACAO_MAP.get(tipo_id, f"Outros (Tipo {tipo_id})")
+                result.append({
+                    "tipo": tipo_id,
+                    "descricao": nome
+                })
+        return result
+    except Exception as e:
+        logger.error(f"Erro ao buscar tipos de natureza de operação: {e}")
+        return []
+
+@app.get("/api/produtos/mais-vendidos")
+def get_produtos_mais_vendidos(
+    ordenar_por: Optional[str] = Query("valor", description="Métrica de ordenação: 'valor' ou 'quantidade'"),
+    limit: int = Query(20, ge=0, le=500, description="Quantidade de registros a retornar (0 para todos)"),
+    tipo_operacao: Optional[str] = Query(None, description="Filtrar por TIPO da Operação Fiscal"),
+    data_inicio: Optional[str] = Query(None, description="Data inicial no formato YYYY-MM-DD"),
+    data_fim: Optional[str] = Query(None, description="Data final no formato YYYY-MM-DD"),
+    search: Optional[str] = Query(None, description="Busca por nome ou código do produto")
+):
+    try:
+        search_clean = str(search).strip().upper() if search and not hasattr(search, 'default') and str(search).strip() else None
+        
+        raw_order = str(ordenar_por) if ordenar_por and not hasattr(ordenar_por, 'default') else "valor"
+        order_metric = "quantidade" if "quantidade" in raw_order.lower() else "valor"
+        
+        limit_val = 20
+        if limit is not None and not hasattr(limit, 'default'):
+            try:
+                limit_val = int(limit)
+            except (ValueError, TypeError):
+                limit_val = 20
+                
+        tipos_op_clean = []
+        if tipo_operacao and not hasattr(tipo_operacao, 'default'):
+            tp_str = str(tipo_operacao).strip()
+            if tp_str and tp_str != 'todos':
+                for part in tp_str.split(','):
+                    part_clean = part.strip()
+                    if part_clean.isdigit():
+                        tipos_op_clean.append(int(part_clean))
+
+        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
+        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+
+        sql = f"""
+            SELECT {first_clause}
+                ti.COD_ITEM,
+                COALESCE(NULLIF(TRIM(ti.DESCRICAO), ''), NULLIF(TRIM(i.DESCRICAO), ''), 'Item ' || ti.COD_ITEM) AS DESCRICAO,
+                SUM(ti.QUANTIDADE) AS QTD_TOTAL,
+                SUM(ti.TOTAL) AS VALOR_TOTAL,
+                COUNT(DISTINCT ti.COD_TRANSACAO) AS QTD_VENDAS
+            FROM TRANSACAO_ITEM ti
+            JOIN TRANSACAO t ON t.COD_TRANSACAO = ti.COD_TRANSACAO AND t.COD_EMPRESA = ti.COD_EMPRESA
+            LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            WHERE ti.COD_ITEM IS NOT NULL AND TRIM(ti.COD_ITEM) <> ''
+              AND t.SITUACAO = 3
+              AND (ti.FATURADO IS NULL OR ti.FATURADO IN ('T', 'S'))
+        """
+        
+        params = []
+        
+        if tipos_op_clean:
+            if len(tipos_op_clean) == 1:
+                sql += " AND nat.TIPO = ?"
+                params.append(tipos_op_clean[0])
+            else:
+                placeholders = ', '.join(['?'] * len(tipos_op_clean))
+                sql += f" AND nat.TIPO IN ({placeholders})"
+                params.extend(tipos_op_clean)
+
+        if dt_ini:
+            sql += " AND t.DATAEMISSAO >= ?"
+            params.append(dt_ini)
+            
+        if dt_fim:
+            sql += " AND t.DATAEMISSAO <= ?"
+            params.append(dt_fim)
+            
+        if search_clean:
+            sql += " AND (UPPER(ti.COD_ITEM) LIKE ? OR UPPER(ti.DESCRICAO) LIKE ? OR UPPER(i.DESCRICAO) LIKE ?)"
+            s_param = f"%{search_clean}%"
+            params.extend([s_param, s_param, s_param])
+            
+        sql += """
+            GROUP BY ti.COD_ITEM, COALESCE(NULLIF(TRIM(ti.DESCRICAO), ''), NULLIF(TRIM(i.DESCRICAO), ''), 'Item ' || ti.COD_ITEM)
+        """
+        
+        if order_metric == "quantidade":
+            sql += " ORDER BY SUM(ti.QUANTIDADE) DESC, SUM(ti.TOTAL) DESC"
+        else:
+            sql += " ORDER BY SUM(ti.TOTAL) DESC, SUM(ti.QUANTIDADE) DESC"
+            
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+        
+        items = []
+        total_faturamento = 0.0
+        total_quantidade = 0.0
+        
+        for idx, r in enumerate(rows, start=1):
+            cod_item = r[0].strip() if r[0] else ""
+            descricao = r[1].strip() if r[1] else f"Item {cod_item}"
+            qtd = float(r[2]) if r[2] is not None else 0.0
+            val_total = float(r[3]) if r[3] is not None else 0.0
+            qtd_vendas = int(r[4]) if r[4] is not None else 0
+            preco_medio = (val_total / qtd) if qtd > 0 else 0.0
+            
+            total_faturamento += val_total
+            total_quantidade += qtd
+            
+            items.append({
+                "ranking": idx,
+                "cod_item": cod_item,
+                "descricao": descricao,
+                "quantidade": qtd,
+                "valor_total": val_total,
+                "qtd_vendas": qtd_vendas,
+                "preco_medio": preco_medio
+            })
+            
+        ticket_medio = (total_faturamento / total_quantidade) if total_quantidade > 0 else 0.0
+        
+        return {
+            "ordenar_por": order_metric,
+            "total_produtos_distintos": len(items),
+            "total_faturamento": total_faturamento,
+            "total_quantidade": total_quantidade,
+            "ticket_medio_item": ticket_medio,
+            "items": items
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar produtos mais vendidos: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/cidades")
+def get_cidades():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT UPPER(TRIM(CIDADE))
+            FROM PESSOA
+            WHERE CIDADE IS NOT NULL AND TRIM(CIDADE) <> ''
+              AND (ATIVO = 'T' OR ATIVO = 'S' OR ATIVO IS NULL OR ATIVO = '1')
+            ORDER BY 1
+        """)
+        rows = cur.fetchall()
+        conn.close()
+        return [r[0] for r in rows if r[0]]
+    except Exception as e:
+        logger.error(f"Erro ao buscar lista de cidades: {e}")
+        return []
+
+@app.get("/api/clientes/mais-compraram")
+def get_clientes_mais_compraram(
+    ordenar_por: Optional[str] = Query("valor", description="Métrica: 'valor' ou 'quantidade'"),
+    limit: int = Query(20, ge=0, le=500),
+    tipo_operacao: Optional[str] = Query(None, description="Tipos de operação separados por vírgula"),
+    cidade: Optional[str] = Query(None, description="Filtro por nome da cidade"),
+    data_inicio: Optional[str] = Query(None, description="Data inicial YYYY-MM-DD"),
+    data_fim: Optional[str] = Query(None, description="Data final YYYY-MM-DD"),
+    search: Optional[str] = Query(None, description="Busca por nome, documento ou código")
+):
+    try:
+        search_clean = str(search).strip().upper() if search and not hasattr(search, 'default') and str(search).strip() else None
+        cidade_clean = str(cidade).strip().upper() if cidade and not hasattr(cidade, 'default') and str(cidade).strip() and str(cidade).lower() != 'todas' else None
+
+        raw_order = str(ordenar_por) if ordenar_por and not hasattr(ordenar_por, 'default') else "valor"
+        order_metric = "quantidade" if "quantidade" in raw_order.lower() else "valor"
+
+        limit_val = 20
+        if limit is not None and not hasattr(limit, 'default'):
+            try:
+                limit_val = int(limit)
+            except (ValueError, TypeError):
+                limit_val = 20
+
+        tipos_op_clean = []
+        if tipo_operacao and not hasattr(tipo_operacao, 'default'):
+            tp_str = str(tipo_operacao).strip()
+            if tp_str and tp_str != 'todos':
+                for part in tp_str.split(','):
+                    part_clean = part.strip()
+                    if part_clean.isdigit():
+                        tipos_op_clean.append(int(part_clean))
+
+        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
+        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        where_clauses = [
+            "p.COD_PESSOA IS NOT NULL",
+            "(p.ATIVO = 'T' OR p.ATIVO = 'S' OR p.ATIVO IS NULL OR p.ATIVO = '1')",
+            "t.SITUACAO = 3",
+            "(ti.FATURADO IS NULL OR ti.FATURADO IN ('T', 'S'))"
+        ]
+        params = []
+
+        if tipos_op_clean:
+            if len(tipos_op_clean) == 1:
+                where_clauses.append("nat.TIPO = ?")
+                params.append(tipos_op_clean[0])
+            else:
+                placeholders = ', '.join(['?'] * len(tipos_op_clean))
+                where_clauses.append(f"nat.TIPO IN ({placeholders})")
+                params.extend(tipos_op_clean)
+
+        if cidade_clean:
+            where_clauses.append("UPPER(TRIM(p.CIDADE)) = ?")
+            params.append(cidade_clean)
+
+        if dt_ini:
+            where_clauses.append("t.DATAEMISSAO >= ?")
+            params.append(dt_ini)
+
+        if dt_fim:
+            where_clauses.append("t.DATAEMISSAO <= ?")
+            params.append(dt_fim)
+
+        if search_clean:
+            where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE ? OR UPPER(p.NOME) LIKE ? OR p.CNPJ LIKE ? OR p.CPF LIKE ? OR CAST(p.COD_PESSOA AS VARCHAR(20)) LIKE ?)")
+            s_param = f"%{search_clean}%"
+            params.extend([s_param, s_param, s_param, s_param, s_param])
+
+        where_sql = " AND ".join(where_clauses)
+
+        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+        order_sql = "ORDER BY SUM(ti.TOTAL) DESC, SUM(ti.QUANTIDADE) DESC" if order_metric == "valor" else "ORDER BY SUM(ti.QUANTIDADE) DESC, SUM(ti.TOTAL) DESC"
+
+        sql_customers = f"""
+            SELECT {first_clause}
+                p.COD_PESSOA,
+                COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || p.COD_PESSOA) AS NOME_CLIENTE,
+                COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
+                COALESCE(p.CNPJ, p.CPF, '') AS DOCUMENTO,
+                SUM(ti.QUANTIDADE) AS QTD_TOTAL,
+                SUM(ti.TOTAL) AS VALOR_TOTAL,
+                COUNT(DISTINCT t.COD_TRANSACAO) AS QTD_COMPRAS
+            FROM TRANSACAO_ITEM ti
+            JOIN TRANSACAO t ON t.COD_TRANSACAO = ti.COD_TRANSACAO AND t.COD_EMPRESA = ti.COD_EMPRESA
+            JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            WHERE {where_sql}
+            GROUP BY p.COD_PESSOA, COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || p.COD_PESSOA), COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), COALESCE(p.CNPJ, p.CPF, '')
+            {order_sql}
+        """
+
+        cur.execute(sql_customers, tuple(params))
+        customer_rows = cur.fetchall()
+
+        items = []
+        total_faturamento = 0.0
+        total_quantidade = 0.0
+        total_compras = 0
+
+        for idx, r in enumerate(customer_rows, start=1):
+            cod_pessoa = r[0]
+            nome = r[1].strip() if r[1] else f"Cliente {cod_pessoa}"
+            cid = r[2].strip() if r[2] else "NÃO INFORMADA"
+            doc = r[3].strip() if r[3] else ""
+            qtd = float(r[4]) if r[4] is not None else 0.0
+            val_total = float(r[5]) if r[5] is not None else 0.0
+            qtd_trans = int(r[6]) if r[6] is not None else 0
+            preco_medio = (val_total / qtd) if qtd > 0 else 0.0
+
+            total_faturamento += val_total
+            total_quantidade += qtd
+            total_compras += qtd_trans
+
+            items.append({
+                "ranking": idx,
+                "cod_pessoa": cod_pessoa,
+                "nome_cliente": nome,
+                "cidade": cid,
+                "documento": doc,
+                "quantidade": qtd,
+                "valor_total": val_total,
+                "qtd_compras": qtd_trans,
+                "preco_medio_item": preco_medio
+            })
+
+        sql_cities = f"""
+            SELECT 
+                COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
+                SUM(ti.TOTAL) AS VALOR_TOTAL,
+                SUM(ti.QUANTIDADE) AS QTD_TOTAL,
+                COUNT(DISTINCT p.COD_PESSOA) AS QTD_CLIENTES,
+                COUNT(DISTINCT t.COD_TRANSACAO) AS QTD_TRANSACOES
+            FROM TRANSACAO_ITEM ti
+            JOIN TRANSACAO t ON t.COD_TRANSACAO = ti.COD_TRANSACAO AND t.COD_EMPRESA = ti.COD_EMPRESA
+            JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            WHERE {where_sql}
+            GROUP BY COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA')
+            ORDER BY SUM(ti.TOTAL) DESC
+        """
+
+        cur.execute(sql_cities, tuple(params))
+        city_rows = cur.fetchall()
+        conn.close()
+
+        cidades_agrupadas = []
+        for cr in city_rows:
+            cidades_agrupadas.append({
+                "cidade": cr[0].strip() if cr[0] else "NÃO INFORMADA",
+                "faturamento": float(cr[1]) if cr[1] is not None else 0.0,
+                "quantidade": float(cr[2]) if cr[2] is not None else 0.0,
+                "qtd_clientes": int(cr[3]) if cr[3] is not None else 0,
+                "qtd_transacoes": int(cr[4]) if cr[4] is not None else 0
+            })
+
+        ticket_medio = (total_faturamento / len(items)) if len(items) > 0 else 0.0
+
+        return {
+            "ordenar_por": order_metric,
+            "total_clientes_distintos": len(items),
+            "total_cidades": len(cidades_agrupadas),
+            "total_faturamento": total_faturamento,
+            "total_quantidade": total_quantidade,
+            "total_compras": total_compras,
+            "ticket_medio_cliente": ticket_medio,
+            "items": items,
+            "cidades_agrupadas": cidades_agrupadas
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar clientes que mais compraram: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Serve static files
+os.makedirs("static", exist_ok=True)
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+

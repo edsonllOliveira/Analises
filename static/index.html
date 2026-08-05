@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ajustes de Ordem de Serviço - Gestão Fiscal e Valores</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div class="logo-icon">🛠️</div>
+                <div class="brand-text">
+                    <h1>Ajuste de OS</h1>
+                    <span>Valores, Operação Fiscal e ICMS</span>
+                </div>
+            </div>
+            
+            <div class="header-controls">
+                <div class="db-select-group">
+                    <label for="dbSelect">Banco de Dados:</label>
+                    <select id="dbSelect" class="db-select">
+                        <option value="producao">📌 Produção (c:\dataweb\Dilab\db.ini)</option>
+                        <option value="teste">🧪 Teste (c:\DataWebTeste\Dilab\Db.ini)</option>
+                        <option value="custom">⚙️ Informar outro db.ini...</option>
+                    </select>
+                </div>
+
+                <div id="dbStatusBadge" class="status-badge loading">
+                    <span class="status-dot"></span>
+                    <span id="dbStatusText">Verificando banco...</span>
+                </div>
+                <button id="btnRefreshStatus" class="btn-icon" title="Atualizar Conexão">🔄</button>
+            </div>
+        </div>
+
+        <!-- Main Module Navigation Tabs -->
+        <div class="module-nav-bar no-print">
+            <div class="module-nav-container">
+                <button id="tabOS" class="module-tab active">
+                    <span class="tab-icon">📋</span>
+                    <span>Ordens de Serviço (OS)</span>
+                </button>
+                <button id="tabClientes" class="module-tab">
+                    <span class="tab-icon">📊</span>
+                    <span>Relatório de Enquadramento Fiscal</span>
+                </button>
+                <button id="tabProdutos" class="module-tab">
+                    <span class="tab-icon">🏆</span>
+                    <span>Produtos Mais Vendidos</span>
+                </button>
+                <button id="tabTopClientes" class="module-tab">
+                    <span class="tab-icon">👥</span>
+                    <span>Clientes que Mais Compram</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="main-content">
+        <!-- Section OS Adjustment -->
+        <div id="sectionOS" class="tab-content">
+            <!-- Search and Filter Bar -->
+            <section class="card search-card">
+                <div class="search-form" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+                    <div class="input-group">
+                        <label for="searchInput">Número da OS / Código</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🔍</span>
+                            <input type="text" id="searchInput" placeholder="Número ou código da OS..." autocomplete="off">
+                        </div>
+                    </div>
+
+                    <div class="input-group autocomplete-wrapper" style="position: relative;">
+                        <label for="osSearchClientInput">Buscar Cliente</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">👤</span>
+                            <input type="text" id="osSearchClientInput" placeholder="Nome, razão social ou código..." autocomplete="off">
+                            <button type="button" id="btnClearClientSearch" class="btn-clear-input hidden" title="Limpar seleção de cliente">✕</button>
+                        </div>
+                        <div id="osClientAutocompleteList" class="autocomplete-dropdown hidden"></div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="osDateInicio">Data Inicial</label>
+                        <input type="date" id="osDateInicio" class="form-control">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="osDateFim">Data Final</label>
+                        <input type="date" id="osDateFim" class="form-control">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="limitSelect">Quantidade</label>
+                        <select id="limitSelect">
+                            <option value="15">15 registros</option>
+                            <option value="30" selected>30 registros</option>
+                            <option value="50">50 registros</option>
+                            <option value="100">100 registros</option>
+                        </select>
+                    </div>
+
+                    <div class="button-group" style="align-self: flex-end;">
+                        <button id="btnSearch" class="btn btn-primary" style="width: 100%;">
+                            <span>Buscar OS</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Table -->
+            <section class="card result-card">
+                <div class="card-header">
+                    <h2>Ordens de Serviço Encontradas</h2>
+                    <span id="resultCountBadge" class="badge">0 encontradas</span>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="data-table" id="osTable">
+                        <thead>
+                            <tr>
+                                <th>Nº OS</th>
+                                <th>Código</th>
+                                <th>Cliente</th>
+                                <th>Emissão</th>
+                                <th>Operação Fiscal</th>
+                                <th>Total (R$)</th>
+                                <th>Total ICMS (R$)</th>
+                                <th class="text-center">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="osTableBody">
+                            <tr>
+                                <td colspan="8" class="text-center empty-state">
+                                    Clique em <strong>Buscar OS</strong> para listar as ordens de serviço.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- Section Clientes Report -->
+        <div id="sectionClientes" class="tab-content hidden">
+            <!-- Filter & Print Card -->
+            <section class="card search-card no-print">
+                <div class="card-header" style="margin-bottom: 1rem;">
+                    <div>
+                        <h2>📊 Relatório de Clientes por Enquadramento Fiscal</h2>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">Exibição exclusiva de clientes ativos agrupados por Enquadramento Fiscal (Nenhum, Simples Nacional, Outro, MEI).</p>
+                    </div>
+                    <div>
+                        <button id="btnPrintClients" class="btn btn-success" style="padding: 0.6rem 1.25rem; font-weight: 600;">
+                            🖨️ Imprimir Relatório
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-form" style="grid-template-columns: 2fr 1.5fr 1fr;">
+                    <div class="input-group">
+                        <label for="clientSearchInput">Buscar Cliente</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🔍</span>
+                            <input type="text" id="clientSearchInput" placeholder="Digite Razão Social, Fantasia, CNPJ ou IE..." autocomplete="off">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="clientTypeSelect">Enquadramento Fiscal</label>
+                        <select id="clientTypeSelect">
+                            <option value="todos" selected>🌐 Todos os Enquadramentos</option>
+                            <option value="1">🏢 Simples Nacional</option>
+                            <option value="3">🏬 MEI (Microempreendedor Individual)</option>
+                            <option value="2">🏢 Outro</option>
+                            <option value="0">❓ Nenhum</option>
+                        </select>
+                    </div>
+
+                    <div class="button-group" style="align-self: flex-end;">
+                        <button id="btnSearchClients" class="btn btn-primary" style="width: 100%;">
+                            <span>Filtrar</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Bar -->
+            <div class="client-stats-bar no-print">
+                <div class="stat-box">
+                    <span class="stat-label">Total Ativos</span>
+                    <span id="statTotalClients" class="stat-value">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Simples Nacional</span>
+                    <span id="statSimples" class="stat-value text-blue">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">MEI</span>
+                    <span id="statMei" class="stat-value text-green">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Outro</span>
+                    <span id="statOutro" class="stat-value">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Nenhum</span>
+                    <span id="statNenhum" class="stat-value">0</span>
+                </div>
+            </div>
+
+            <!-- Print Header (Visible only when printing) -->
+            <div class="print-only print-header">
+                <div class="print-title">RELATÓRIO DE CLIENTES ATIVOS POR ENQUADRAMENTO FISCAL</div>
+                <div class="print-meta">
+                    <span id="printDate">Data: --/--/----</span> | 
+                    <span id="printFilter">Filtro: Todos os Enquadramentos</span>
+                </div>
+            </div>
+
+            <!-- Client Report Table Card -->
+            <section class="card result-card print-full-width">
+                <div class="card-header no-print">
+                    <h2>Lista de Clientes</h2>
+                    <span id="clientResultCountBadge" class="badge">0 encontrados</span>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="data-table" id="clientsTable">
+                        <thead>
+                            <tr>
+                                <th>Razão Social</th>
+                                <th>Nome Fantasia</th>
+                                <th>CNPJ / CPF</th>
+                                <th>Inscrição Estadual (IE)</th>
+                                <th class="text-center">Enquadramento Fiscal</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientsTableBody">
+                            <tr>
+                                <td colspan="5" class="text-center empty-state">
+                                    Clique no botão <strong>Filtrar</strong> para carregar o relatório de clientes.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- Section Produtos Mais Vendidos Report -->
+        <div id="sectionProdutos" class="tab-content hidden">
+            <!-- Filter & Action Card -->
+            <section class="card search-card no-print">
+                <div class="card-header" style="margin-bottom: 1rem;">
+                    <div>
+                        <h2>🏆 Relatório de Produtos Mais Vendidos</h2>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">Análise de volume de vendas e faturamento total dos itens comercializados com gráficos dinâmicos.</p>
+                    </div>
+                    <div>
+                        <button id="btnPrintProducts" class="btn btn-success" style="padding: 0.6rem 1.25rem; font-weight: 600;">
+                            🖨️ Imprimir Relatório
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-form" style="grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));">
+                    <div class="input-group">
+                        <label for="productSearchInput">Buscar Produto</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🔍</span>
+                            <input type="text" id="productSearchInput" placeholder="Nome ou código do item..." autocomplete="off">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="productOrderSelect">Filtrar/Ordenar Por</label>
+                        <select id="productOrderSelect" class="select-highlight">
+                            <option value="valor" selected>💰 Valor Total Vendido (R$)</option>
+                            <option value="quantidade">📦 Quantidade Vendida (Unidades)</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label>Tipos de Operação</label>
+                        <div class="multi-select-container" id="tipoOpMultiSelect">
+                            <button type="button" class="multi-select-btn" id="btnTipoOpDropdown">
+                                <span id="lblTipoOpSelected">🌐 Todos os Tipos</span>
+                                <span class="arrow">▼</span>
+                            </button>
+                            <div class="multi-select-dropdown hidden" id="dropdownTipoOpList">
+                                <div class="multi-select-actions">
+                                    <button type="button" id="btnSelectAllTipos" class="btn-link">Marcar Todos</button>
+                                    <span class="sep">|</span>
+                                    <button type="button" id="btnClearTipos" class="btn-link">Desmarcar</button>
+                                </div>
+                                <div class="multi-select-options" id="containerTiposOpCheckboxes">
+                                    <!-- Populated dynamically via JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="productLimitSelect">Top Produtos</label>
+                        <select id="productLimitSelect">
+                            <option value="10">Top 10 Produtos</option>
+                            <option value="20" selected>Top 20 Produtos</option>
+                            <option value="50">Top 50 Produtos</option>
+                            <option value="100">Top 100 Produtos</option>
+                            <option value="0">Todos os Produtos</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="productDateInicio">Data Inicial</label>
+                        <input type="date" id="productDateInicio" class="form-control">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="productDateFim">Data Final</label>
+                        <input type="date" id="productDateFim" class="form-control">
+                    </div>
+
+                    <div class="button-group" style="align-self: flex-end;">
+                        <button id="btnSearchProducts" class="btn btn-primary" style="width: 100%;">
+                            <span>Filtrar</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Bar -->
+            <div class="client-stats-bar no-print" id="productStatsBar">
+                <div class="stat-box">
+                    <span class="stat-label">Faturamento Total</span>
+                    <span id="statProductFaturamento" class="stat-value text-green">R$ 0,00</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Volume Vendido</span>
+                    <span id="statProductQtd" class="stat-value text-blue">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Produtos Distintos</span>
+                    <span id="statProductDistintos" class="stat-value">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Ticket Médio por Item</span>
+                    <span id="statProductTicket" class="stat-value">R$ 0,00</span>
+                </div>
+            </div>
+
+            <!-- Print Header (Visible only when printing) -->
+            <div class="print-only print-header">
+                <div class="print-title">RELATÓRIO DE PRODUTOS MAIS VENDIDOS</div>
+                <div class="print-meta">
+                    <span id="productPrintDate">Data: --/--/----</span> | 
+                    <span id="productPrintFilter">Filtro: Ordenado por Valor Total</span>
+                </div>
+            </div>
+
+            <!-- Chart Card (Above the table) -->
+            <section class="card result-card print-full-width" style="margin-bottom: 1.5rem;">
+                <div class="card-header flex-between">
+                    <div>
+                        <h2 id="chartCardTitle">📊 Gráfico de Produtos Mais Vendidos</h2>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">Visualização gráfica do desempenho por produto selecionado.</span>
+                    </div>
+                    <span id="chartMetricBadge" class="badge badge-blue">Métrica: Valor Total (R$)</span>
+                </div>
+                <div class="chart-wrapper" style="position: relative; height: 360px; width: 100%; padding: 0.5rem;">
+                    <canvas id="productsChart"></canvas>
+                </div>
+            </section>
+
+            <!-- Products List Table Card -->
+            <section class="card result-card print-full-width">
+                <div class="card-header no-print flex-between">
+                    <h2>📋 Listagem Detalhada de Produtos</h2>
+                    <span id="productResultCountBadge" class="badge">0 produtos</span>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="data-table" id="productsTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 70px;" class="text-center">Rank</th>
+                                <th style="width: 110px;">Código</th>
+                                <th>Descrição do Produto</th>
+                                <th class="text-right" style="width: 140px;">Qtd Vendida</th>
+                                <th class="text-right" style="width: 140px;">Preço Médio</th>
+                                <th class="text-right" style="width: 160px;">Total Vendido (R$)</th>
+                                <th class="text-center" style="width: 110px;">Nº Vendas</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productsTableBody">
+                            <tr>
+                                <td colspan="7" class="text-center empty-state">
+                                    Clique no botão <strong>Filtrar</strong> para carregar o relatório de produtos.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- Section Top Clientes Report (Clientes que Mais Compram) -->
+        <div id="sectionTopClientes" class="tab-content hidden">
+            <!-- Filter & Action Card -->
+            <section class="card search-card no-print">
+                <div class="card-header" style="margin-bottom: 1rem;">
+                    <div>
+                        <h2>👥 Relatório de Clientes que Mais Compram</h2>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">Análise dos maiores clientes em faturamento e volume, com distribuição e mapa de concentração por cidade.</p>
+                    </div>
+                    <div>
+                        <button id="btnPrintTopCustomers" class="btn btn-success" style="padding: 0.6rem 1.25rem; font-weight: 600;">
+                            🖨️ Imprimir Relatório
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-form" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+                    <div class="input-group">
+                        <label for="topCustomerSearchInput">Buscar Cliente</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🔍</span>
+                            <input type="text" id="topCustomerSearchInput" placeholder="Razão social, nome ou CNPJ/CPF..." autocomplete="off">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="topCustomerOrderSelect">Filtrar/Ordenar Por</label>
+                        <select id="topCustomerOrderSelect" class="select-highlight">
+                            <option value="valor" selected>💰 Valor Total Comprado (R$)</option>
+                            <option value="quantidade">📦 Quantidade Comprada (Unidades)</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label>Tipos de Operação</label>
+                        <div class="multi-select-container" id="topCustomerTipoOpMultiSelect">
+                            <button type="button" class="multi-select-btn" id="btnTopCustomerTipoOpDropdown">
+                                <span id="lblTopCustomerTipoOpSelected">🌐 Todos os Tipos</span>
+                                <span class="arrow">▼</span>
+                            </button>
+                            <div class="multi-select-dropdown hidden" id="dropdownTopCustomerTipoOpList">
+                                <div class="multi-select-actions">
+                                    <button type="button" id="btnSelectAllTopCustomerTipos" class="btn-link">Marcar Todos</button>
+                                    <span class="sep">|</span>
+                                    <button type="button" id="btnClearTopCustomerTipos" class="btn-link">Desmarcar</button>
+                                </div>
+                                <div class="multi-select-options" id="containerTopCustomerTiposOpCheckboxes">
+                                    <!-- Populated dynamically via JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="topCustomerCitySelect">Cidade</label>
+                        <select id="topCustomerCitySelect" class="form-control">
+                            <option value="todas" selected>🌐 Todas as Cidades</option>
+                            <!-- Populated dynamically via /api/cidades -->
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="topCustomerLimitSelect">Top Clientes</label>
+                        <select id="topCustomerLimitSelect">
+                            <option value="10">Top 10 Clientes</option>
+                            <option value="20" selected>Top 20 Clientes</option>
+                            <option value="50">Top 50 Clientes</option>
+                            <option value="100">Top 100 Clientes</option>
+                            <option value="0">Todos os Clientes</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="topCustomerDateInicio">Data Inicial</label>
+                        <input type="date" id="topCustomerDateInicio" class="form-control">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="topCustomerDateFim">Data Final</label>
+                        <input type="date" id="topCustomerDateFim" class="form-control">
+                    </div>
+
+                    <div class="button-group" style="align-self: flex-end;">
+                        <button id="btnSearchTopCustomers" class="btn btn-primary" style="width: 100%;">
+                            <span>Filtrar</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Bar -->
+            <div class="client-stats-bar no-print" id="topCustomerStatsBar">
+                <div class="stat-box">
+                    <span class="stat-label">Faturamento Total</span>
+                    <span id="statTopCustomerFaturamento" class="stat-value text-green">R$ 0,00</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Volume Comprado</span>
+                    <span id="statTopCustomerQtd" class="stat-value text-blue">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Clientes Distintos</span>
+                    <span id="statTopCustomerDistintos" class="stat-value">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Cidades Atendidas</span>
+                    <span id="statTopCustomerCidades" class="stat-value">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Ticket Médio / Cliente</span>
+                    <span id="statTopCustomerTicket" class="stat-value">R$ 0,00</span>
+                </div>
+            </div>
+
+            <!-- Print Header (Visible only when printing) -->
+            <div class="print-only print-header">
+                <div class="print-title">RELATÓRIO DE CLIENTES QUE MAIS COMPRAM POR CIDADE</div>
+                <div class="print-meta">
+                    <span id="topCustomerPrintDate">Data: --/--/----</span> | 
+                    <span id="topCustomerPrintFilter">Filtro: Ordenado por Valor Total</span>
+                </div>
+            </div>
+
+            <!-- Charts Section (Bar Chart & Interactive Bubble Chart Side by Side / Stacked) -->
+            <div class="charts-grid no-print" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                <!-- Chart 1: Bar Chart per City -->
+                <section class="card result-card print-full-width" style="margin: 0;">
+                    <div class="card-header flex-between">
+                        <div>
+                            <h2>📊 Faturamento por Cidade</h2>
+                            <span style="font-size: 0.8rem; color: var(--text-secondary);">Principais cidades por volume financeiro.</span>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper" style="position: relative; height: 340px; width: 100%; padding: 0.5rem;">
+                        <canvas id="topCustomerCityChartCanvas"></canvas>
+                    </div>
+                </section>
+
+                <!-- Chart 2: Interactive Bubble Chart of Customer Concentration -->
+                <section class="card result-card print-full-width" style="margin: 0;">
+                    <div class="card-header flex-between">
+                        <div>
+                            <h2>🫧 Gráfico de Concentração de Clientes por Cidade</h2>
+                            <span style="font-size: 0.8rem; color: var(--text-secondary);">💡 Clique na bolha de uma cidade para listar seus clientes.</span>
+                        </div>
+                        <span id="bubbleHelpBadge" class="badge badge-green">Eixo X: Qtd Clientes | Eixo Y: R$ Faturamento</span>
+                    </div>
+                    <div class="chart-wrapper" style="position: relative; height: 340px; width: 100%; padding: 0.5rem; cursor: pointer;">
+                        <canvas id="topCustomerBubbleChartCanvas"></canvas>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Customers List Table Card -->
+            <section class="card result-card print-full-width">
+                <div class="card-header no-print flex-between">
+                    <h2>📋 Listagem Detalhada de Clientes</h2>
+                    <span id="topCustomerResultCountBadge" class="badge">0 clientes</span>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="data-table" id="topCustomersTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 70px;" class="text-center">Rank</th>
+                                <th style="width: 90px;">Código</th>
+                                <th>Razão Social / Nome do Cliente</th>
+                                <th style="width: 160px;">Cidade</th>
+                                <th style="width: 150px;">CNPJ / CPF</th>
+                                <th class="text-right" style="width: 130px;">Qtd Comprada</th>
+                                <th class="text-right" style="width: 130px;">Preço Médio</th>
+                                <th class="text-right" style="width: 160px;">Total Comprado (R$)</th>
+                                <th class="text-center" style="width: 100px;">Nº Compras</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topCustomersTableBody">
+                            <tr>
+                                <td colspan="9" class="text-center empty-state">
+                                    Clique no botão <strong>Filtrar</strong> para carregar o relatório de clientes.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Edit Modal Workspace -->
+    <div id="editModal" class="modal-overlay hidden">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <h2 id="modalOsTitle">Edição de OS #---</h2>
+                    <span id="modalClientName" class="modal-subtitle">Cliente: ---</span>
+                </div>
+                <button id="btnCloseModal" class="btn-close">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Header Fields (Operacao Fiscal & Totais Globais) -->
+                <div class="section-title">Dados Gerais e Operação Fiscal</div>
+                <div class="grid-form">
+                    <div class="input-group" style="grid-column: span 2;">
+                        <label for="modalOperacaoFiscal">Operação Fiscal (Cabeçalho)</label>
+                        <select id="modalOperacaoFiscal" class="form-control select-highlight">
+                            <option value="">Carregando opções...</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalValorDesconto">Desconto Geral (R$)</label>
+                        <input type="number" id="modalValorDesconto" step="0.01" class="form-control text-right" value="0.00">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalTotalOS">Valor Total da OS (R$)</label>
+                        <input type="number" id="modalTotalOS" step="0.01" class="form-control text-right highlight-input" value="0.00">
+                    </div>
+                </div>
+
+                <!-- Totais de Tributos Section -->
+                <div class="section-title">Totais dos Tributos</div>
+                <div class="grid-form" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
+                    <div class="input-group">
+                        <label for="modalTotalICMS">Total ICMS (R$)</label>
+                        <input type="number" id="modalTotalICMS" step="0.01" class="form-control text-right highlight-input-blue" value="0.00">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalTotalISSQN">Total ISS (R$)</label>
+                        <input type="number" id="modalTotalISSQN" step="0.01" class="form-control text-right" value="0.00">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalTotalIPI">Total IPI (R$)</label>
+                        <input type="number" id="modalTotalIPI" step="0.01" class="form-control text-right" value="0.00">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalTotalPIS">Total PIS (R$)</label>
+                        <input type="number" id="modalTotalPIS" step="0.01" class="form-control text-right" value="0.00">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalTotalCOFINS">Total COFINS (R$)</label>
+                        <input type="number" id="modalTotalCOFINS" step="0.01" class="form-control text-right" value="0.00">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalTotalICMSST">Total ICMS ST (R$)</label>
+                        <input type="number" id="modalTotalICMSST" step="0.01" class="form-control text-right" value="0.00">
+                    </div>
+                </div>
+
+                <!-- Items Section -->
+                <div class="section-title flex-between">
+                    <span>Itens da Ordem de Serviço</span>
+                    <button id="btnRecalculate" class="btn btn-secondary btn-sm" title="Recalcular ICMS e Totais dos itens">
+                        ⚡ Recalcular Automático
+                    </button>
+                </div>
+
+                <div class="table-responsive modal-table-container">
+                    <table class="data-table items-table">
+                        <thead>
+                            <tr>
+                                <th style="min-width: 80px;">Item</th>
+                                <th style="min-width: 180px;">Descrição</th>
+                                <th style="min-width: 65px;">Qtd</th>
+                                <th style="min-width: 105px;">V. Unit. Original</th>
+                                <th style="min-width: 75px;">% Desc.</th>
+                                <th style="min-width: 95px;">V. Desc (R$)</th>
+                                <th style="min-width: 105px;">Total Final (R$)</th>
+                                <th style="min-width: 220px;">CFOP (Operação Fiscal)</th>
+                                <th style="min-width: 60px;">CST</th>
+                                <th style="min-width: 75px;">% ICMS</th>
+                                <th style="min-width: 95px;">Base ICMS</th>
+                                <th style="min-width: 95px;">V. ICMS</th>
+                                <th style="min-width: 90px;">V. ISS</th>
+                                <th style="min-width: 90px;">V. IPI</th>
+                                <th style="min-width: 90px;">V. PIS</th>
+                                <th style="min-width: 90px;">V. COFINS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemsTableBody">
+                            <!-- Items inserted dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button id="btnCancelEdit" class="btn btn-tertiary">Cancelar</button>
+                <button id="btnSaveOS" class="btn btn-success">
+                    <span>💾 Salvar Alterações no Banco</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
