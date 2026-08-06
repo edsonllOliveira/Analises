@@ -1,54 +1,68 @@
 @echo off
-chcp 65001 >nul
-:: Garante que a execução ocorra dentro do diretório onde este arquivo .bat está localizado
 cd /d "%~dp0"
 
 echo ==================================================
-echo   INSTALAÇÃO E ATUALIZAÇÃO AUTOMÁTICA - ASPHERIC ANALYTICS
+echo   INSTALACAO E ATUALIZACAO AUTOMATICA - ASPHERIC ANALYTICS
 echo ==================================================
 echo.
 
-:: 1. Se app.py não existir na pasta, clona todo o repositório pela primeira vez
+REM 0. Verifica se o Python esta instalado e no PATH
+where python >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERRO CRITICO] Python nao foi encontrado neste servidor!
+    echo.
+    echo Por favor, instale o Python 3 (https://www.python.org/downloads/)
+    echo IMPORTANTE: Durante a instalacao, marque a opcao "Add python.exe to PATH".
+    echo.
+    pause
+    exit /b 1
+)
+
+REM 1. Se app.py nao existir na pasta, clona o repositorio
 if not exist "app.py" (
-    echo [+] Primeira execução detectada. Baixando todo o projeto do GitHub...
+    echo [+] Primeira execucao detectada. Baixando o projeto do GitHub...
     git clone https://github.com/edsonllOliveira/Analises.git .
 ) else (
-    :: Se a pasta .git não existir, inicializa e associa
+    REM Se a pasta .git nao existir, inicializa e associa
     if not exist ".git" (
-        echo [+] Configurando repositório Git local...
+        echo [+] Configurando repositorio Git local...
         git init
         git remote add origin https://github.com/edsonllOliveira/Analises.git
     )
-    echo [+] Baixando atualizações do GitHub (https://github.com/edsonllOliveira/Analises.git)...
+    echo [+] Baixando atualizacoes do GitHub...
     git pull https://github.com/edsonllOliveira/Analises.git main
 )
 
-:: 2. Se o pull falhar por conta de divergências locais, força a sincronização
+REM 2. Se o pull falhar por conta de divergencias locais, forca a sincronizacao
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo [!] Sincronizando e alinhando com a versão mais recente do remoto...
+    echo [!] Sincronizando com a versao mais recente do remoto...
     git fetch https://github.com/edsonllOliveira/Analises.git main
     git reset --hard FETCH_HEAD
 )
 
 echo.
-echo [+] Verificando/Instalando dependências Python (FastAPI, Uvicorn, FDB, Pydantic)...
-pip install fastapi uvicorn fdb pydantic
+echo [+] Verificando dependencias Python...
+python -m pip install fastapi uvicorn fdb pydantic >nul 2>&1
 
 echo.
-echo [+] Encerrando qualquer instância ativa do servidor (run_server.py)...
+echo [+] Encerrando instancia ativa do servidor...
 powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*run_server.py*' } | Stop-Process -Force" >nul 2>&1
 
-echo [+] Aguardando liberação de arquivos e portas...
+echo [+] Aguardando liberacao de arquivos...
 timeout /t 2 /nobreak >nul
 
-echo [+] Iniciando a aplicação em segundo plano (Modo Oculto)...
-start wscript "%~dp0start_server_hidden.vbs"
+echo [+] Iniciando a aplicacao em segundo plano...
+if exist "start_server_hidden.vbs" (
+    start wscript "%~dp0start_server_hidden.vbs"
+) else (
+    start python run_server.py
+)
 
 echo.
 echo ==================================================
-echo   [OK] Aplicação configurada e iniciada com sucesso!
-echo   🌐 Acesse no navegador: http://localhost:8011
+echo   [OK] Aplicacao configurada e iniciada com sucesso!
+echo   Acesse no navegador: http://localhost:8011
 echo ==================================================
 echo.
-timeout /t 5
+pause
