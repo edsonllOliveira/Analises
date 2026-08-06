@@ -87,6 +87,7 @@ class ItemUpdateModel(BaseModel):
     valordesconto: Optional[float] = 0.0
     cod_naturezaoperacao: Optional[str] = None
     aliquotaicms: Optional[float] = 0.0
+    aliquotaicmsdiferimento: Optional[float] = 0.0
     basecalculoicms: Optional[float] = 0.0
     totalicms: Optional[float] = 0.0
     tributacaoicms: Optional[str] = "00"
@@ -473,7 +474,8 @@ def get_os_detail(cod_os: int, cod_empresa: int = 1):
                 ti.TOTALICMSSUBSTITUICAO, ti.VALORORIGINAL,
                 pf_direct.PRECO AS FAMILIA_DIRECT_PRECO,
                 pf_prod.PRECO AS FAMILIA_PROD_PRECO,
-                i.PRECOVENDA AS ITEM_PRECOVENDA
+                i.PRECOVENDA AS ITEM_PRECOVENDA,
+                ti.ALIQUOTAICMSDIFERIMENTO
             FROM TRANSACAO_ITEM ti
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = ti.COD_NATUREZAOPERACAO
             LEFT JOIN PRODUTOFAMILIA pf_direct ON pf_direct.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
@@ -497,6 +499,18 @@ def get_os_detail(cod_os: int, cod_empresa: int = 1):
             fam_direct_preco = float(ir[23]) if len(ir) > 23 and ir[23] is not None and float(ir[23]) > 0 else 0.0
             fam_prod_preco = float(ir[24]) if len(ir) > 24 and ir[24] is not None and float(ir[24]) > 0 else 0.0
             item_precovenda = float(ir[25]) if len(ir) > 25 and ir[25] is not None and float(ir[25]) > 0 else 0.0
+            aliq_dif = float(ir[26]) if len(ir) > 26 and ir[26] is not None else 0.0
+            cst_str = ir[12].strip() if ir[12] else "00"
+            aliq_nom = float(ir[9]) if ir[9] is not None else 0.0
+            base_icms = float(ir[10]) if ir[10] is not None else 0.0
+            tot_icms = float(ir[11]) if ir[11] is not None else 0.0
+
+            if aliq_dif == 0.0 and cst_str in ('51', '051', '151', '251') and aliq_nom > 0:
+                if tot_icms > 0 and base_icms > 0:
+                    aliq_efetiva = (tot_icms / base_icms) * 100.0
+                    aliq_dif = max(0.0, ((aliq_nom - aliq_efetiva) / aliq_nom) * 100.0)
+                elif aliq_nom > 12.0:
+                    aliq_dif = ((aliq_nom - 12.0) / aliq_nom) * 100.0
 
             # Priority for original unit list price (Preço de Venda da Família da Lente):
             # 1. Direct item transaction lens family price (pf_direct.PRECO)
@@ -531,10 +545,11 @@ def get_os_detail(cod_os: int, cod_empresa: int = 1):
                 "percentual_desconto": pct_desc,
                 "cod_naturezaoperacao": ir[7].strip() if ir[7] else "",
                 "natureza_descricao": ir[8].strip() if ir[8] else "",
-                "aliquotaicms": float(ir[9]) if ir[9] is not None else 0.0,
-                "basecalculoicms": float(ir[10]) if ir[10] is not None else 0.0,
-                "totalicms": float(ir[11]) if ir[11] is not None else 0.0,
-                "tributacaoicms": ir[12].strip() if ir[12] else "00",
+                "aliquotaicms": aliq_nom,
+                "aliquotaicmsdiferimento": round(aliq_dif, 4),
+                "basecalculoicms": base_icms,
+                "totalicms": tot_icms,
+                "tributacaoicms": cst_str,
                 "totalissqn": float(ir[13]) if ir[13] is not None else 0.0,
                 "aliquotaissqn": float(ir[14]) if ir[14] is not None else 0.0,
                 "totalipi": float(ir[15]) if ir[15] is not None else 0.0,
@@ -613,6 +628,7 @@ def update_os(cod_os: int, data: OSUpdateModel):
                     TOTAL = ?,
                     COD_NATUREZAOPERACAO = ?,
                     ALIQUOTAICMS = ?,
+                    ALIQUOTAICMSDIFERIMENTO = ?,
                     BASECALCULOICMS = ?,
                     TOTALICMS = ?,
                     TRIBUTACAOICMS = ?,
@@ -633,6 +649,7 @@ def update_os(cod_os: int, data: OSUpdateModel):
                 Decimal(f"{item.total:.4f}"),
                 item.cod_naturezaoperacao if item.cod_naturezaoperacao else None,
                 Decimal(f"{(item.aliquotaicms or 0.0):.4f}"),
+                Decimal(f"{(item.aliquotaicmsdiferimento or 0.0):.4f}"),
                 Decimal(f"{(item.basecalculoicms or 0.0):.4f}"),
                 Decimal(f"{(item.totalicms or 0.0):.4f}"),
                 item.tributacaoicms if item.tributacaoicms else "00",

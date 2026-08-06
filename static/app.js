@@ -501,8 +501,9 @@ function renderItemsTable() {
                         ${naturezasList.map(n => `<option value="${n.cod}" ${n.cod === item.cod_naturezaoperacao ? 'selected' : ''}>${n.cod} - ${n.descricao}</option>`).join('')}
                     </select>
                 </td>
-                <td><input type="text" class="form-control text-center" id="cst_${idx}" value="${item.tributacaoicms || '00'}" maxlength="3"></td>
+                <td><input type="text" class="form-control text-center" id="cst_${idx}" value="${item.tributacaoicms || '00'}" maxlength="3" oninput="calcRowICMS(${idx})"></td>
                 <td><input type="number" step="0.01" class="form-control text-right" id="aliqicms_${idx}" value="${(item.aliquotaicms || 0).toFixed(2)}" oninput="calcRowICMS(${idx})"></td>
+                <td><input type="number" step="0.01" class="form-control text-right" id="aliqdificms_${idx}" value="${(item.aliquotaicmsdiferimento || 0).toFixed(2)}" oninput="calcRowICMS(${idx})" placeholder="0.00"></td>
                 <td><input type="number" step="0.01" class="form-control text-right" id="baseicms_${idx}" value="${(item.basecalculoicms || 0).toFixed(2)}" oninput="calcRowICMSManual(${idx})"></td>
                 <td><input type="number" step="0.01" class="form-control text-right highlight-input-blue" id="vlicms_${idx}" value="${(item.totalicms || 0).toFixed(2)}" oninput="calcRowICMSValManual(${idx})"></td>
                 <td><input type="number" step="0.01" class="form-control text-right" id="vliss_${idx}" value="${(item.totalissqn || 0).toFixed(2)}" oninput="recalculateTotalsHeader()"></td>
@@ -569,18 +570,39 @@ function calcRowSubtotalManual(idx) {
     calcRowICMS(idx);
 }
 
-// Calculate Row ICMS (Base = Subtotal, ICMS = Base * Aliquota / 100)
+// Calculate Row ICMS (Base = Subtotal, ICMS com suporte a Diferimento para CST 51)
 function calcRowICMS(idx) {
     const totalEl = document.getElementById(`total_${idx}`);
+    const cstEl = document.getElementById(`cst_${idx}`);
     const aliqEl = document.getElementById(`aliqicms_${idx}`);
+    const aliqdifEl = document.getElementById(`aliqdificms_${idx}`);
     const baseEl = document.getElementById(`baseicms_${idx}`);
     const vlicmsEl = document.getElementById(`vlicms_${idx}`);
     
+    if (!totalEl || !aliqEl || !baseEl || !vlicmsEl) return;
+
     const subtotal = parseFloat(totalEl.value) || 0;
-    const aliq = parseFloat(aliqEl.value) || 0;
+    const aliqNominal = parseFloat(aliqEl.value) || 0;
+    const cst = cstEl ? String(cstEl.value).trim() : '00';
+    let aliqDif = aliqdifEl ? (parseFloat(aliqdifEl.value) || 0) : 0;
     
+    // Base de cálculo do ICMS
     const base = subtotal;
-    const vlicms = base * (aliq / 100.0);
+    
+    // Se o CST for de diferimento (51, 051, 151, 251)
+    const isDiferimento = (cst === '51' || cst === '051' || cst === '151' || cst === '251');
+    
+    // Se for CST 51 e o percentual de diferimento não foi preenchido manualmente
+    if (isDiferimento && aliqNominal > 0 && aliqDif === 0) {
+        if (aliqNominal > 12.0) {
+            aliqDif = ((aliqNominal - 12.0) / aliqNominal) * 100.0;
+            if (aliqdifEl) aliqdifEl.value = aliqDif.toFixed(2);
+        }
+    }
+    
+    // Alíquota efetiva de ICMS pós diferimento
+    const aliqEfetiva = Math.max(0, aliqNominal * (1.0 - aliqDif / 100.0));
+    const vlicms = base * (aliqEfetiva / 100.0);
     
     baseEl.value = base.toFixed(2);
     vlicmsEl.value = vlicms.toFixed(2);
@@ -591,12 +613,16 @@ function calcRowICMS(idx) {
 // Manual edit of Base ICMS
 function calcRowICMSManual(idx) {
     const aliqEl = document.getElementById(`aliqicms_${idx}`);
+    const aliqdifEl = document.getElementById(`aliqdificms_${idx}`);
     const baseEl = document.getElementById(`baseicms_${idx}`);
     const vlicmsEl = document.getElementById(`vlicms_${idx}`);
     
-    const aliq = parseFloat(aliqEl.value) || 0;
+    const aliqNominal = parseFloat(aliqEl.value) || 0;
+    const aliqDif = aliqdifEl ? (parseFloat(aliqdifEl.value) || 0) : 0;
     const base = parseFloat(baseEl.value) || 0;
-    const vlicms = base * (aliq / 100.0);
+    
+    const aliqEfetiva = Math.max(0, aliqNominal * (1.0 - aliqDif / 100.0));
+    const vlicms = base * (aliqEfetiva / 100.0);
     
     vlicmsEl.value = vlicms.toFixed(2);
     
@@ -707,6 +733,8 @@ async function saveOS() {
             const vdesc = vdescEl ? (parseFloat(vdescEl.value) || 0.0) : (it.valordesconto || 0.0);
             const vunitLiquid = qtd > 0 ? (totalVal / qtd) : (it.valorunitario || 0.0);
 
+            const aliqdifEl = document.getElementById(`aliqdificms_${idx}`);
+
             return {
                 cod_transacaoitem: it.cod_transacaoitem,
                 cod_item: it.cod_item,
@@ -717,6 +745,7 @@ async function saveOS() {
                 valordesconto: vdesc,
                 cod_naturezaoperacao: natEl ? (natEl.value || null) : it.cod_naturezaoperacao,
                 aliquotaicms: aliqEl ? (parseFloat(aliqEl.value) || 0.0) : it.aliquotaicms,
+                aliquotaicmsdiferimento: aliqdifEl ? (parseFloat(aliqdifEl.value) || 0.0) : (it.aliquotaicmsdiferimento || 0.0),
                 basecalculoicms: baseEl ? (parseFloat(baseEl.value) || 0.0) : it.basecalculoicms,
                 totalicms: vlicmsEl ? (parseFloat(vlicmsEl.value) || 0.0) : it.totalicms,
                 tributacaoicms: cstEl ? (cstEl.value.trim() || '00') : it.tributacaoicms,
