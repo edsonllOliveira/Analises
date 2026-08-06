@@ -833,6 +833,38 @@ if (tabTopClientes) {
     });
 }
 
+// Function to navigate to OS Tab and search OS records for a specific client
+function filterOSByClient(codPessoa, clientName) {
+    if (!tabOS || !sectionOS) return;
+    
+    // Switch active tab to OS
+    switchActiveTab(tabOS, sectionOS);
+    
+    // Set selected client in search input and global state
+    selectedSearchCodPessoa = codPessoa;
+    if (osSearchClientInput) {
+        osSearchClientInput.value = `Cód: ${codPessoa} - ${clientName}`;
+    }
+    if (btnClearClientSearch) {
+        btnClearClientSearch.classList.remove('hidden');
+    }
+    
+    // Clear general text search if filled
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    
+    // Scroll smoothly to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Execute OS search
+    searchOS();
+    
+    showToast(`Filtrando Ordens de Serviço do cliente: ${clientName}`, 'info');
+}
+
+window.filterOSByClient = filterOSByClient;
+
 const clientSearchInput = document.getElementById('clientSearchInput');
 const clientTypeSelect = document.getElementById('clientTypeSelect');
 const btnSearchClients = document.getElementById('btnSearchClients');
@@ -906,11 +938,18 @@ function renderClientsTable(list) {
         else if (c.enquadramento_codigo === 2) badgeClass = ''; // Outro
         else badgeClass = ''; // Nenhum
         
+        const cleanName = escapeHtml(c.razao_social).replace(/'/g, "\\'");
+        
         return `
             <tr>
-                <td><strong>${escapeHtml(c.razao_social)}</strong></td>
+                <td>
+                    <a href="#" class="client-os-link" onclick="event.preventDefault(); window.filterOSByClient('${c.cod_pessoa}', '${cleanName}');" title="Clique para carregar as Ordens de Serviço (OS) deste cliente">
+                        <span class="link-icon">🔍</span>
+                        <strong>${escapeHtml(c.razao_social)}</strong>
+                    </a>
+                </td>
                 <td>${escapeHtml(c.nome_fantasia || 'N/A')}</td>
-                <td>${escapeHtml(c.cnpj_cpf || 'N/A')}</td>
+                <td><code>${escapeHtml(c.cnpj_cpf || 'N/A')}</code></td>
                 <td>${escapeHtml(c.ie || 'ISENTO')}</td>
                 <td class="text-center">
                     <span class="badge ${badgeClass}">
@@ -1781,15 +1820,22 @@ function renderTopCustomersTable(items, orderMetric) {
         const highlightValClass = !isByQuantity ? 'style="font-weight: 700; color: #60a5fa;"' : '';
         const highlightQtdClass = isByQuantity ? 'style="font-weight: 700; color: #34d399;"' : '';
 
+        const cleanName = escapeHtml(item.nome_cliente).replace(/'/g, "\\'");
+
         return `
             <tr>
                 <td class="text-center">
                     <span class="${rankBadgeClass}">${rank}</span>
                 </td>
                 <td><code>${escapeHtml(item.cod_pessoa)}</code></td>
-                <td><strong>${escapeHtml(item.nome_cliente)}</strong></td>
+                <td>
+                    <a href="#" class="client-os-link" onclick="event.preventDefault(); window.filterOSByClient('${item.cod_pessoa}', '${cleanName}');" title="Clique para carregar as Ordens de Serviço (OS) deste cliente">
+                        <span class="link-icon">🔍</span>
+                        <strong>${escapeHtml(item.nome_cliente)}</strong>
+                    </a>
+                </td>
                 <td><span class="badge badge-blue">${escapeHtml(item.cidade)}</span></td>
-                <td>${escapeHtml(item.documento || 'N/A')}</td>
+                <td><code>${escapeHtml(item.documento || 'N/A')}</code></td>
                 <td class="text-right" ${highlightQtdClass}>
                     ${item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                 </td>

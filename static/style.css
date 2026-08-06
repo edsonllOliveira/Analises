@@ -1067,4 +1067,31 @@ select:focus,
     text-align: center;
 }
 
+/* Clickable Client Link to Navigate to OS Tab */
+.client-os-link {
+    color: #60a5fa;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.15s ease, text-decoration 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.client-os-link:hover {
+    color: #93c5fd;
+    text-decoration: underline;
+}
+
+.client-os-link .link-icon {
+    font-size: 0.75rem;
+    opacity: 0.7;
+    transition: opacity 0.15s ease;
+}
+
+.client-os-link:hover .link-icon {
+    opacity: 1;
+}
+
+
 
