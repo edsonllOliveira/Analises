@@ -1,18 +1,29 @@
 @echo off
 chcp 65001 >nul
+:: Garante que a execução ocorra dentro do diretório onde este arquivo .bat está localizado
+cd /d "%~dp0"
+
 echo ==================================================
 echo   ATUALIZADOR AUTOMÁTICO - SISTEMA OS AJUSTES
 echo ==================================================
 echo.
 
-echo [+] Baixando as últimas atualizações do Git (origin main)...
-git pull origin main
+:: Se a pasta ainda não tiver a estrutura Git inicializada no servidor, configura automaticamente
+if not exist ".git" (
+    echo [+] Configurando repositório Git local...
+    git init
+    git remote add origin https://github.com/edsonllOliveira/Analises.git
+)
+
+echo [+] Baixando atualizações de https://github.com/edsonllOliveira/Analises.git ...
+git pull https://github.com/edsonllOliveira/Analises.git main
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo [!] Ocorreu um erro ao executar git pull. Verifique a conexão ou alterações locais.
-    pause
-    exit /b %ERRORLEVEL%
+    echo [!] Ocorreu um alerta/erro ao atualizar via git pull.
+    echo [!] Tentando sincronizar e alinhar com o repositório remoto...
+    git fetch https://github.com/edsonllOliveira/Analises.git main
+    git reset --hard FETCH_HEAD
 )
 
 echo.
