@@ -43,6 +43,29 @@ Plataforma web desenvolvida para consulta e ajuste de **Ordens de Serviço (OS)*
 
 ---
 
+### 3. 🏷️ Mapeamento e Classificação de CFOPs (Naturezas de Operação)
+O sistema lê diretamente a tabela `NATUREZAOPERACAO` do Firebird e categoriza todas as operações pelos seus respectivos **TIPOS**:
+
+| Tipo (`TIPO`) | Categoria de Operação Fiscal | Principais CFOPs Mapeados | Finalidade / Aplicação |
+|:---|:---|:---|:---|
+| **1** | 🛒 Vendas em Geral | `5.101`, `5.102`, `5.103`, `5.123`, `5.124`, `5.922`, `6.101`, `6.102`, `6.403` | Saída de vendas de produtos, mercadorias de terceiros e prestação de serviços. |
+| **2** | 📥 Compras / Entradas | `1.101`, `1.102`, `1.405`, `1.556`, `2.101`, `2.102`, `2.403`, `2.556` | Aquisições para comercialização, matérias-primas e uso/consumo. |
+| **3** | 🔄 Devoluções e Trocas | `1.201`, `1.202`, `2.201`, `2.202`, `5.201`, `5.202`, `5.411`, `6.201`, `6.202` | Devoluções de vendas, devoluções de compras e trocas de mercadorias. |
+| **4** | 🚚 Transferências | `1.151`, `1.152`, `1.557`, `5.152`, `5.557`, `6.152`, `6.924` | Transferência de estoque entre matriz e filiais da mesma empresa. |
+| **5** | 📦 Empréstimos e Demonstração | `1.9491`, `2.9491`, `5.9490`, `5.9491`, `6.912` | Remessas e retornos de mercadorias para demonstração ou empréstimo. |
+| **6** | 🎁 Amostra Grátis | `6.911` | Envio de amostras grátis de produtos. |
+| **8** | 🛠️ Remessas e Serviços | `5.910`, `5.915`, `5.949-3`, `5.949-4`, `6.915` | Remessas para conserto, garantia e prestação de serviços sem venda. |
+| **9** | 🎁 Bonificação e Brindes | `1.910`, `2.910`, `5.910-1`, `6.910` | Entrada/saída em bonificação, doação ou brindes comerciais. |
+| **10** | 🏭 Industrialização / Encomenda | `1.124`, `2.124`, `5.901`, `5.902`, `6.901` | Remessa e retorno de insumos para industrialização por encomenda. |
+| **11** | 📅 Vendas p/ Entrega Futura | `5.117`, `5.117-1`, `5116`, `6.117`, `6.117-1`, `6116` | Faturamento antecipado de vendas de produção/terceiros. |
+| **12** | 🏢 Venda de Imobilizado & Outras | `5.551`, `6.551`, `1.949`, `2.949-5`, `5.949-1`, `7.949` | Venda de bens do ativo imobilizado e saídas operacionais diversas. |
+| **13** | ⚠️ Baixa / Perda / Roubo | `5.927`, `6.927` | Baixas de estoque por avaria, perda, roubo ou deterioração. |
+| **14** | 🛡️ Remessa / Troca em Garantia | `6.949-4`, `6949-3` | Remessa e substituição de itens em garantia. |
+| **15** | ↩️ Retorno de Insumos | `1.903`, `5903` | Retorno de insumos não utilizados na produção. |
+| **21** | 🤝 Remessa por Conta e Ordem | `6.923-1` | Remessa por conta e ordem de terceiros em vendas à ordem. |
+
+---
+
 ## 🛠️ Tecnologias Utilizadas
 
 * **Backend**: Python 3.10+, [FastAPI](https://fastapi.tiangolo.com/), [Uvicorn](https://www.uvicorn.org/), `fdb` (Driver Firebird para Python).
