@@ -1364,6 +1364,10 @@ if (btnSearchProducts) {
     btnSearchProducts.addEventListener('click', loadProductsReport);
 }
 
+if (productTipoItemSelect) {
+    productTipoItemSelect.addEventListener('change', loadProductsReport);
+}
+
 if (productSearchInput) {
     productSearchInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') loadProductsReport();
@@ -1834,6 +1838,10 @@ if (btnPrintTopCustomers) {
 
 if (btnSearchTopCustomers) {
     btnSearchTopCustomers.addEventListener('click', loadTopCustomersReport);
+}
+
+if (topCustomerTipoItemSelect) {
+    topCustomerTipoItemSelect.addEventListener('change', loadTopCustomersReport);
 }
 
 if (topCustomerSearchInput) {
