@@ -807,13 +807,21 @@ def get_produtos_mais_vendidos(
                 limit_val = 20
                 
         tipos_op_clean = []
+        is_explicit_todos = False
         if tipo_operacao and not hasattr(tipo_operacao, 'default'):
             tp_str = str(tipo_operacao).strip()
-            if tp_str and tp_str != 'todos':
+            if tp_str.lower() == 'todos':
+                is_explicit_todos = True
+            elif tp_str:
                 for part in tp_str.split(','):
                     part_clean = part.strip()
                     if part_clean.isdigit():
                         tipos_op_clean.append(int(part_clean))
+
+        # Se nenhum tipo específico for informado e não for solicitado 'todos' explicitamente,
+        # considera APENAS operações de venda (TIPO = 1: Vendas e TIPO = 11: Vendas p/ Entrega Futura)
+        if not tipos_op_clean and not is_explicit_todos:
+            tipos_op_clean = [1, 11]
 
         dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
         dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
@@ -959,13 +967,21 @@ def get_clientes_mais_compraram(
                 limit_val = 20
 
         tipos_op_clean = []
+        is_explicit_todos = False
         if tipo_operacao and not hasattr(tipo_operacao, 'default'):
             tp_str = str(tipo_operacao).strip()
-            if tp_str and tp_str != 'todos':
+            if tp_str.lower() == 'todos':
+                is_explicit_todos = True
+            elif tp_str:
                 for part in tp_str.split(','):
                     part_clean = part.strip()
                     if part_clean.isdigit():
                         tipos_op_clean.append(int(part_clean))
+
+        # Se nenhum tipo específico for informado e não for solicitado 'todos' explicitamente,
+        # considera APENAS operações de venda (TIPO = 1: Vendas e TIPO = 11: Vendas p/ Entrega Futura)
+        if not tipos_op_clean and not is_explicit_todos:
+            tipos_op_clean = [1, 11]
 
         dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
         dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
