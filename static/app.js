@@ -505,6 +505,8 @@ function renderItemsTable() {
                 <td><input type="number" step="0.01" class="form-control text-right" id="aliqicms_${idx}" value="${(item.aliquotaicms || 0).toFixed(2)}" oninput="calcRowICMS(${idx})"></td>
                 <td><input type="number" step="0.01" class="form-control text-right" id="aliqdificms_${idx}" value="${(item.aliquotaicmsdiferimento || 0).toFixed(2)}" oninput="calcRowICMS(${idx})" placeholder="0.00"></td>
                 <td><input type="number" step="0.01" class="form-control text-right" id="baseicms_${idx}" value="${(item.basecalculoicms || 0).toFixed(2)}" oninput="calcRowICMSManual(${idx})"></td>
+                <td><input type="number" step="0.01" class="form-control text-right" id="icmsoper_${idx}" value="${(item.icms_operacao || 0).toFixed(2)}" readonly style="opacity:0.7;cursor:default;"></td>
+                <td><input type="number" step="0.01" class="form-control text-right" id="icmsdif_${idx}" value="${(item.icms_diferido || 0).toFixed(2)}" readonly style="opacity:0.7;cursor:default;"></td>
                 <td><input type="number" step="0.01" class="form-control text-right highlight-input-blue" id="vlicms_${idx}" value="${(item.totalicms || 0).toFixed(2)}" oninput="calcRowICMSValManual(${idx})"></td>
                 <td><input type="number" step="0.01" class="form-control text-right" id="vliss_${idx}" value="${(item.totalissqn || 0).toFixed(2)}" oninput="recalculateTotalsHeader()"></td>
                 <td><input type="number" step="0.01" class="form-control text-right" id="vlipi_${idx}" value="${(item.totalipi || 0).toFixed(2)}" oninput="recalculateTotalsHeader()"></td>
@@ -577,6 +579,8 @@ function calcRowICMS(idx) {
     const aliqEl = document.getElementById(`aliqicms_${idx}`);
     const aliqdifEl = document.getElementById(`aliqdificms_${idx}`);
     const baseEl = document.getElementById(`baseicms_${idx}`);
+    const icmsOperEl = document.getElementById(`icmsoper_${idx}`);
+    const icmsDifEl = document.getElementById(`icmsdif_${idx}`);
     const vlicmsEl = document.getElementById(`vlicms_${idx}`);
     
     if (!totalEl || !aliqEl || !baseEl || !vlicmsEl) return;
@@ -600,11 +604,18 @@ function calcRowICMS(idx) {
         }
     }
     
-    // Alíquota efetiva de ICMS pós diferimento
-    const aliqEfetiva = Math.max(0, aliqNominal * (1.0 - aliqDif / 100.0));
-    const vlicms = base * (aliqEfetiva / 100.0);
+    // ICMS da operação (cheio, antes do diferimento)
+    const icmsOperacao = base * (aliqNominal / 100.0);
+    
+    // ICMS diferido
+    const icmsDiferido = isDiferimento ? (icmsOperacao * (aliqDif / 100.0)) : 0;
+    
+    // ICMS efetivo (a recolher) = operação - diferido
+    const vlicms = isDiferimento ? (icmsOperacao - icmsDiferido) : icmsOperacao;
     
     baseEl.value = base.toFixed(2);
+    if (icmsOperEl) icmsOperEl.value = isDiferimento ? icmsOperacao.toFixed(2) : '0.00';
+    if (icmsDifEl) icmsDifEl.value = icmsDiferido.toFixed(2);
     vlicmsEl.value = vlicms.toFixed(2);
     
     recalculateTotalsHeader();
@@ -612,18 +623,26 @@ function calcRowICMS(idx) {
 
 // Manual edit of Base ICMS
 function calcRowICMSManual(idx) {
+    const cstEl = document.getElementById(`cst_${idx}`);
     const aliqEl = document.getElementById(`aliqicms_${idx}`);
     const aliqdifEl = document.getElementById(`aliqdificms_${idx}`);
     const baseEl = document.getElementById(`baseicms_${idx}`);
+    const icmsOperEl = document.getElementById(`icmsoper_${idx}`);
+    const icmsDifEl = document.getElementById(`icmsdif_${idx}`);
     const vlicmsEl = document.getElementById(`vlicms_${idx}`);
     
     const aliqNominal = parseFloat(aliqEl.value) || 0;
     const aliqDif = aliqdifEl ? (parseFloat(aliqdifEl.value) || 0) : 0;
     const base = parseFloat(baseEl.value) || 0;
+    const cst = cstEl ? String(cstEl.value).trim() : '00';
+    const isDiferimento = (cst === '51' || cst === '051' || cst === '151' || cst === '251');
     
-    const aliqEfetiva = Math.max(0, aliqNominal * (1.0 - aliqDif / 100.0));
-    const vlicms = base * (aliqEfetiva / 100.0);
+    const icmsOperacao = base * (aliqNominal / 100.0);
+    const icmsDiferido = isDiferimento ? (icmsOperacao * (aliqDif / 100.0)) : 0;
+    const vlicms = isDiferimento ? (icmsOperacao - icmsDiferido) : icmsOperacao;
     
+    if (icmsOperEl) icmsOperEl.value = isDiferimento ? icmsOperacao.toFixed(2) : '0.00';
+    if (icmsDifEl) icmsDifEl.value = icmsDiferido.toFixed(2);
     vlicmsEl.value = vlicms.toFixed(2);
     
     recalculateTotalsHeader();

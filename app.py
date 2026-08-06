@@ -505,12 +505,26 @@ def get_os_detail(cod_os: int, cod_empresa: int = 1):
             base_icms = float(ir[10]) if ir[10] is not None else 0.0
             tot_icms = float(ir[11]) if ir[11] is not None else 0.0
 
-            if aliq_dif == 0.0 and cst_str in ('51', '051', '151', '251') and aliq_nom > 0:
-                if tot_icms > 0 and base_icms > 0:
-                    aliq_efetiva = (tot_icms / base_icms) * 100.0
-                    aliq_dif = max(0.0, ((aliq_nom - aliq_efetiva) / aliq_nom) * 100.0)
-                elif aliq_nom > 12.0:
-                    aliq_dif = ((aliq_nom - 12.0) / aliq_nom) * 100.0
+            # CST 51 = Diferimento parcial/total do ICMS
+            is_diferimento = cst_str in ('51', '051', '151', '251')
+            icms_operacao = 0.0
+            icms_diferido = 0.0
+
+            if is_diferimento and aliq_nom > 0 and base_icms > 0:
+                # ICMS da operação (cheio, sem diferimento)
+                icms_operacao = base_icms * (aliq_nom / 100.0)
+
+                # Determinar % de diferimento se não veio do banco
+                if aliq_dif == 0.0:
+                    if tot_icms > 0:
+                        aliq_efetiva = (tot_icms / base_icms) * 100.0
+                        aliq_dif = max(0.0, ((aliq_nom - aliq_efetiva) / aliq_nom) * 100.0)
+                    elif aliq_nom > 12.0:
+                        aliq_dif = ((aliq_nom - 12.0) / aliq_nom) * 100.0
+
+                # Recalcular ICMS com diferimento
+                icms_diferido = icms_operacao * (aliq_dif / 100.0)
+                tot_icms = round(icms_operacao - icms_diferido, 2)
 
             # Priority for original unit list price (Preço de Venda da Família da Lente):
             # 1. Direct item transaction lens family price (pf_direct.PRECO)
@@ -548,6 +562,8 @@ def get_os_detail(cod_os: int, cod_empresa: int = 1):
                 "aliquotaicms": aliq_nom,
                 "aliquotaicmsdiferimento": round(aliq_dif, 4),
                 "basecalculoicms": base_icms,
+                "icms_operacao": round(icms_operacao, 2),
+                "icms_diferido": round(icms_diferido, 2),
                 "totalicms": tot_icms,
                 "tributacaoicms": cst_str,
                 "totalissqn": float(ir[13]) if ir[13] is not None else 0.0,
