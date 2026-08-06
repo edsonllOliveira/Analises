@@ -989,6 +989,7 @@ let tiposOperacaoData = [];
 
 const productSearchInput = document.getElementById('productSearchInput');
 const productOrderSelect = document.getElementById('productOrderSelect');
+const productTipoItemSelect = document.getElementById('productTipoItemSelect');
 const productLimitSelect = document.getElementById('productLimitSelect');
 const productDateInicio = document.getElementById('productDateInicio');
 const productDateFim = document.getElementById('productDateFim');
@@ -1109,12 +1110,13 @@ async function loadProductsReport() {
     try {
         const order = productOrderSelect ? productOrderSelect.value : 'valor';
         const selectedTipos = getSelectedTiposOperacao();
+        const tipoItem = productTipoItemSelect ? productTipoItemSelect.value : 'todos';
         const limit = productLimitSelect ? productLimitSelect.value : '20';
         const search = productSearchInput ? productSearchInput.value.trim() : '';
         const dtIni = productDateInicio ? productDateInicio.value : '';
         const dtFim = productDateFim ? productDateFim.value : '';
 
-        let url = `/api/produtos/mais-vendidos?ordenar_por=${encodeURIComponent(order)}&limit=${encodeURIComponent(limit)}`;
+        let url = `/api/produtos/mais-vendidos?ordenar_por=${encodeURIComponent(order)}&limit=${encodeURIComponent(limit)}&tipo_item=${encodeURIComponent(tipoItem)}`;
         if (selectedTipos.length > 0) {
             url += `&tipo_operacao=${encodeURIComponent(selectedTipos.join(','))}`;
         }
@@ -1339,11 +1341,12 @@ function updateProductPrintMeta(data) {
 
     if (productPrintFilter) {
         const orderText = productOrderSelect ? productOrderSelect.options[productOrderSelect.selectedIndex].text : 'Valor';
+        const tipoItemText = productTipoItemSelect ? productTipoItemSelect.options[productTipoItemSelect.selectedIndex].text : 'Ambos';
         const tipoOpText = lblTipoOpSelected ? lblTipoOpSelected.textContent : 'Todos os Tipos';
         const limitText = productLimitSelect ? productLimitSelect.options[productLimitSelect.selectedIndex].text : 'Top 20';
         const searchText = productSearchInput ? productSearchInput.value.trim() : '';
 
-        let filterStr = `Filtro: ${orderText} | Tipo: ${tipoOpText} | ${limitText}`;
+        let filterStr = `Filtro: ${orderText} | ${tipoItemText} | Operação: ${tipoOpText} | ${limitText}`;
         if (searchText) filterStr += ` | Busca: "${searchText}"`;
         productPrintFilter.textContent = filterStr;
     }
@@ -1378,6 +1381,7 @@ let topCustomerTiposData = [];
 
 const topCustomerSearchInput = document.getElementById('topCustomerSearchInput');
 const topCustomerOrderSelect = document.getElementById('topCustomerOrderSelect');
+const topCustomerTipoItemSelect = document.getElementById('topCustomerTipoItemSelect');
 const topCustomerCitySelect = document.getElementById('topCustomerCitySelect');
 const topCustomerLimitSelect = document.getElementById('topCustomerLimitSelect');
 const topCustomerDateInicio = document.getElementById('topCustomerDateInicio');
@@ -1516,13 +1520,14 @@ async function loadTopCustomersReport() {
     try {
         const order = topCustomerOrderSelect ? topCustomerOrderSelect.value : 'valor';
         const selectedTipos = getSelectedTopCustomerTipos();
+        const tipoItem = topCustomerTipoItemSelect ? topCustomerTipoItemSelect.value : 'todos';
         const city = topCustomerCitySelect ? topCustomerCitySelect.value : 'todas';
         const limit = topCustomerLimitSelect ? topCustomerLimitSelect.value : '20';
         const search = topCustomerSearchInput ? topCustomerSearchInput.value.trim() : '';
         const dtIni = topCustomerDateInicio ? topCustomerDateInicio.value : '';
         const dtFim = topCustomerDateFim ? topCustomerDateFim.value : '';
 
-        let url = `/api/clientes/mais-compraram?ordenar_por=${encodeURIComponent(order)}&limit=${encodeURIComponent(limit)}`;
+        let url = `/api/clientes/mais-compraram?ordenar_por=${encodeURIComponent(order)}&limit=${encodeURIComponent(limit)}&tipo_item=${encodeURIComponent(tipoItem)}`;
         if (selectedTipos.length > 0) url += `&tipo_operacao=${encodeURIComponent(selectedTipos.join(','))}`;
         if (city && city !== 'todas') url += `&cidade=${encodeURIComponent(city)}`;
         if (search) url += `&search=${encodeURIComponent(search)}`;
@@ -1807,12 +1812,13 @@ function updateTopCustomerPrintMeta(data) {
 
     if (topCustomerPrintFilter) {
         const orderText = topCustomerOrderSelect ? topCustomerOrderSelect.options[topCustomerOrderSelect.selectedIndex].text : 'Valor';
+        const tipoItemText = topCustomerTipoItemSelect ? topCustomerTipoItemSelect.options[topCustomerTipoItemSelect.selectedIndex].text : 'Ambos';
         const tipoOpText = lblTopCustomerTipoOpSelected ? lblTopCustomerTipoOpSelected.textContent : 'Todos os Tipos';
         const cityText = topCustomerCitySelect ? topCustomerCitySelect.options[topCustomerCitySelect.selectedIndex].text : 'Todas as Cidades';
         const limitText = topCustomerLimitSelect ? topCustomerLimitSelect.options[topCustomerLimitSelect.selectedIndex].text : 'Top 20';
         const searchText = topCustomerSearchInput ? topCustomerSearchInput.value.trim() : '';
 
-        let filterStr = `Filtro: ${orderText} | Cidade: ${cityText} | Tipo: ${tipoOpText} | ${limitText}`;
+        let filterStr = `Filtro: ${orderText} | ${tipoItemText} | Cidade: ${cityText} | Operação: ${tipoOpText} | ${limitText}`;
         if (searchText) filterStr += ` | Busca: "${searchText}"`;
         topCustomerPrintFilter.textContent = filterStr;
     }

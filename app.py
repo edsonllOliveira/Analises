@@ -789,6 +789,7 @@ def get_produtos_mais_vendidos(
     ordenar_por: Optional[str] = Query("valor", description="Métrica de ordenação: 'valor' ou 'quantidade'"),
     limit: int = Query(20, ge=0, le=500, description="Quantidade de registros a retornar (0 para todos)"),
     tipo_operacao: Optional[str] = Query(None, description="Filtrar por TIPO da Operação Fiscal"),
+    tipo_item: Optional[str] = Query("todos", description="Classificação do item: 'todos', 'produtos' ou 'servicos'"),
     data_inicio: Optional[str] = Query(None, description="Data inicial no formato YYYY-MM-DD"),
     data_fim: Optional[str] = Query(None, description="Data final no formato YYYY-MM-DD"),
     search: Optional[str] = Query(None, description="Busca por nome ou código do produto")
@@ -822,6 +823,8 @@ def get_produtos_mais_vendidos(
         # considera APENAS operações de venda (TIPO = 1: Vendas e TIPO = 11: Vendas p/ Entrega Futura)
         if not tipos_op_clean and not is_explicit_todos:
             tipos_op_clean = [1, 11]
+
+        tipo_item_clean = str(tipo_item).strip().lower() if tipo_item and not hasattr(tipo_item, 'default') else "todos"
 
         dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
         dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
@@ -857,6 +860,11 @@ def get_produtos_mais_vendidos(
                 placeholders = ', '.join(['?'] * len(tipos_op_clean))
                 sql += f" AND nat.TIPO IN ({placeholders})"
                 params.extend(tipos_op_clean)
+
+        if tipo_item_clean == "produtos":
+            sql += " AND (i.COD_ITEMTIPO = 1 OR ti.QUANTIDADEPRODUTO > 0)"
+        elif tipo_item_clean == "servicos":
+            sql += " AND (i.COD_ITEMTIPO = 2 OR ti.QUANTIDADESERVICO > 0 OR COALESCE(ti.TOTALISSQN, 0) > 0 OR COALESCE(ti.ALIQUOTAISSQN, 0) > 0)"
 
         if dt_ini:
             sql += " AND t.DATAEMISSAO >= ?"
@@ -947,6 +955,7 @@ def get_clientes_mais_compraram(
     ordenar_por: Optional[str] = Query("valor", description="Métrica: 'valor' ou 'quantidade'"),
     limit: int = Query(20, ge=0, le=500),
     tipo_operacao: Optional[str] = Query(None, description="Tipos de operação separados por vírgula"),
+    tipo_item: Optional[str] = Query("todos", description="Classificação do item: 'todos', 'produtos' ou 'servicos'"),
     cidade: Optional[str] = Query(None, description="Filtro por nome da cidade"),
     data_inicio: Optional[str] = Query(None, description="Data inicial YYYY-MM-DD"),
     data_fim: Optional[str] = Query(None, description="Data final YYYY-MM-DD"),
@@ -983,6 +992,8 @@ def get_clientes_mais_compraram(
         if not tipos_op_clean and not is_explicit_todos:
             tipos_op_clean = [1, 11]
 
+        tipo_item_clean = str(tipo_item).strip().lower() if tipo_item and not hasattr(tipo_item, 'default') else "todos"
+
         dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
         dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
 
@@ -1005,6 +1016,11 @@ def get_clientes_mais_compraram(
                 placeholders = ', '.join(['?'] * len(tipos_op_clean))
                 where_clauses.append(f"nat.TIPO IN ({placeholders})")
                 params.extend(tipos_op_clean)
+
+        if tipo_item_clean == "produtos":
+            where_clauses.append("(i.COD_ITEMTIPO = 1 OR ti.QUANTIDADEPRODUTO > 0)")
+        elif tipo_item_clean == "servicos":
+            where_clauses.append("(i.COD_ITEMTIPO = 2 OR ti.QUANTIDADESERVICO > 0 OR COALESCE(ti.TOTALISSQN, 0) > 0 OR COALESCE(ti.ALIQUOTAISSQN, 0) > 0)")
 
         if cidade_clean:
             where_clauses.append("UPPER(TRIM(p.CIDADE)) = ?")
@@ -1041,6 +1057,7 @@ def get_clientes_mais_compraram(
             JOIN TRANSACAO t ON t.COD_TRANSACAO = ti.COD_TRANSACAO AND t.COD_EMPRESA = ti.COD_EMPRESA
             JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
             WHERE {where_sql}
             GROUP BY p.COD_PESSOA, COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || p.COD_PESSOA), COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), COALESCE(p.CNPJ, p.CPF, '')
             {order_sql}
