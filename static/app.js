@@ -1045,14 +1045,14 @@ function updateTipoOpLabel() {
     const checkedCbs = containerTiposOpCheckboxes.querySelectorAll('input[type="checkbox"]:checked');
     
     if (checkedCbs.length === 0) {
-        lblTipoOpSelected.textContent = '🛒 Apenas Vendas (Padrão)';
+        lblTipoOpSelected.textContent = '🛒 Vendas';
     } else if (checkedCbs.length === allCbs.length) {
         lblTipoOpSelected.textContent = '🌐 Todos os Tipos';
     } else if (checkedCbs.length === 1) {
         const item = tiposOperacaoData.find(t => String(t.tipo) === checkedCbs[0].value);
         lblTipoOpSelected.textContent = item ? item.descricao : `1 Tipo Selecionado`;
     } else if (checkedCbs.length === 2 && Array.from(checkedCbs).every(c => c.value === '1' || c.value === '11')) {
-        lblTipoOpSelected.textContent = '🛒 Apenas Vendas (Tipo 1 e 11)';
+        lblTipoOpSelected.textContent = '🛒 Vendas';
     } else {
         lblTipoOpSelected.textContent = `🏷️ ${checkedCbs.length} Tipos Selecionados`;
     }
@@ -1439,14 +1439,14 @@ function updateTopCustomerTipoOpLabel() {
     const checkedCbs = containerTopCustomerTiposOpCheckboxes.querySelectorAll('input[type="checkbox"]:checked');
     
     if (checkedCbs.length === 0) {
-        lblTopCustomerTipoOpSelected.textContent = '🛒 Apenas Vendas (Padrão)';
+        lblTopCustomerTipoOpSelected.textContent = '🛒 Vendas';
     } else if (checkedCbs.length === allCbs.length) {
         lblTopCustomerTipoOpSelected.textContent = '🌐 Todos os Tipos';
     } else if (checkedCbs.length === 1) {
         const item = topCustomerTiposData.find(t => String(t.tipo) === checkedCbs[0].value);
         lblTopCustomerTipoOpSelected.textContent = item ? item.descricao : `1 Tipo Selecionado`;
     } else if (checkedCbs.length === 2 && Array.from(checkedCbs).every(c => c.value === '1' || c.value === '11')) {
-        lblTopCustomerTipoOpSelected.textContent = '🛒 Apenas Vendas (Tipo 1 e 11)';
+        lblTopCustomerTipoOpSelected.textContent = '🛒 Vendas';
     } else {
         lblTopCustomerTipoOpSelected.textContent = `🏷️ ${checkedCbs.length} Tipos Selecionados`;
     }
