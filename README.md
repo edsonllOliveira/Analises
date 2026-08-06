@@ -1,6 +1,6 @@
-# 🛠️ Sistema de Ajuste de Ordem de Serviço & Relatório por Enquadramento Fiscal
+# 📊 Aspheric Analytics - Gestão Fiscal, Ordens de Serviço & Análises
 
-Aplicação web desenvolvida para consulta e ajuste de **Ordens de Serviço (OS)**, valores tributários, CFOPs, CSTs e emissão de **Relatórios de Clientes por Enquadramento Fiscal** diretamente no banco de dados Firebird (`COMMERCIO.DATAWEB` / Dilab Dataweb).
+Plataforma web desenvolvida para consulta e ajuste de **Ordens de Serviço (OS)**, valores tributários, CFOPs, CSTs, curva ABC de clientes e emissão de **Relatórios por Enquadramento Fiscal** diretamente no banco de dados Firebird (`COMMERCIO.DATAWEB` / Dilab Dataweb).
 
 ---
 

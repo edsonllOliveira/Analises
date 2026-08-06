@@ -44,7 +44,7 @@ def get_local_ip():
 
 def main():
     print("=" * 70)
-    print("  SISTEMA DE AJUSTE DE ORDEM DE SERVIÇO (VALORES, CFOP & ICMS)")
+    print("  ASPHERIC ANALYTICS - GESTÃO FISCAL, ORDENS DE SERVIÇO & ANÁLISES")
     print("=" * 70)
     
     try:

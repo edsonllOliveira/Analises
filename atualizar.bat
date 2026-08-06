@@ -4,7 +4,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ==================================================
-echo   INSTALAÇÃO E ATUALIZAÇÃO AUTOMÁTICA - OS AJUSTES
+echo   INSTALAÇÃO E ATUALIZAÇÃO AUTOMÁTICA - ASPHERIC ANALYTICS
 echo ==================================================
 echo.
 

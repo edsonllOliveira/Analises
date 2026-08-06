@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("os_ajustes")
+logger = logging.getLogger("aspheric_analytics")
 
 def get_teste_ini_path():
     if os.path.exists(r"c:\DataWebTeste\Dilab\Db.ini"):
@@ -66,7 +66,7 @@ def get_db_connection(ini_path=None):
         charset="WIN1252"
     )
 
-app = FastAPI(title="Sistema de Ajuste de Ordem de Serviço", version="1.2.0")
+app = FastAPI(title="Aspheric Analytics", version="1.3.0", description="Plataforma Aspheric Analytics - Gestão Fiscal, Ordens de Serviço & Análises")
 
 app.add_middleware(
     CORSMiddleware,
