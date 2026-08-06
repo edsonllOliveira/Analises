@@ -4,41 +4,51 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ==================================================
-echo   ATUALIZADOR AUTOMÁTICO - SISTEMA OS AJUSTES
+echo   INSTALAÇÃO E ATUALIZAÇÃO AUTOMÁTICA - OS AJUSTES
 echo ==================================================
 echo.
 
-:: Se a pasta ainda não tiver a estrutura Git inicializada no servidor, configura automaticamente
-if not exist ".git" (
-    echo [+] Configurando repositório Git local...
-    git init
-    git remote add origin https://github.com/edsonllOliveira/Analises.git
+:: 1. Se app.py não existir na pasta, clona todo o repositório pela primeira vez
+if not exist "app.py" (
+    echo [+] Primeira execução detectada. Baixando todo o projeto do GitHub...
+    git clone https://github.com/edsonllOliveira/Analises.git .
+) else (
+    :: Se a pasta .git não existir, inicializa e associa
+    if not exist ".git" (
+        echo [+] Configurando repositório Git local...
+        git init
+        git remote add origin https://github.com/edsonllOliveira/Analises.git
+    )
+    echo [+] Baixando atualizações do GitHub (https://github.com/edsonllOliveira/Analises.git)...
+    git pull https://github.com/edsonllOliveira/Analises.git main
 )
 
-echo [+] Baixando atualizações de https://github.com/edsonllOliveira/Analises.git ...
-git pull https://github.com/edsonllOliveira/Analises.git main
-
+:: 2. Se o pull falhar por conta de divergências locais, força a sincronização
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo [!] Ocorreu um alerta/erro ao atualizar via git pull.
-    echo [!] Tentando sincronizar e alinhar com o repositório remoto...
+    echo [!] Sincronizando e alinhando com a versão mais recente do remoto...
     git fetch https://github.com/edsonllOliveira/Analises.git main
     git reset --hard FETCH_HEAD
 )
 
 echo.
-echo [+] Encerrando instância atual do servidor (run_server.py)...
+echo [+] Verificando/Instalando dependências Python (FastAPI, Uvicorn, FDB, Pydantic)...
+pip install fastapi uvicorn fdb pydantic
+
+echo.
+echo [+] Encerrando qualquer instância ativa do servidor (run_server.py)...
 powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*run_server.py*' } | Stop-Process -Force" >nul 2>&1
 
-echo [+] Aguardando 2 segundos para liberação de portas e arquivos...
+echo [+] Aguardando liberação de arquivos e portas...
 timeout /t 2 /nobreak >nul
 
-echo [+] Iniciando o servidor atualizado em segundo plano...
+echo [+] Iniciando a aplicação em segundo plano (Modo Oculto)...
 start wscript "%~dp0start_server_hidden.vbs"
 
 echo.
 echo ==================================================
-echo   [OK] Aplicação atualizada e iniciada com sucesso!
+echo   [OK] Aplicação configurada e iniciada com sucesso!
+echo   🌐 Acesse no navegador: http://localhost:8011
 echo ==================================================
 echo.
-timeout /t 4
+timeout /t 5
