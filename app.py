@@ -318,15 +318,17 @@ def list_os(
     cliente: Optional[str] = Query(None, description="Filtro por nome, razão social ou documento do cliente"),
     data_inicio: Optional[str] = Query(None, description="Data inicial YYYY-MM-DD"),
     data_fim: Optional[str] = Query(None, description="Data final YYYY-MM-DD"),
-    limit: int = Query(30, ge=1, le=200)
+    limit: int = Query(30, ge=0, le=5000)
 ):
     try:
-        limit_val = int(limit) if isinstance(limit, (int, str, float)) else 30
+        limit_val = int(limit) if limit is not None and not hasattr(limit, 'default') else 30
+        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+        
         conn = get_db_connection()
         cur = conn.cursor()
         
         sql = f"""
-            SELECT FIRST {limit_val} 
+            SELECT {first_clause} 
                 os.COD_ORDEMSERVICO, os.COD_EMPRESA, os.NUMEROORDEMSERVICO,
                 t.COD_PESSOA, CAST(p.NOME AS VARCHAR(250)), CAST(p.RAZAOSOCIAL AS VARCHAR(250)),
                 t.COD_NATUREZAOPERACAO, CAST(nat.DESCRICAO AS VARCHAR(250)) AS NATUREZA_DESCRICAO,

@@ -853,6 +853,29 @@ function filterOSByClient(codPessoa, clientName) {
     if (searchInput) {
         searchInput.value = '';
     }
+
+    // Preserve Date Filter from report if available
+    let dtIni = '';
+    let dtFim = '';
+
+    const topIni = document.getElementById('topCustomerDateInicio');
+    const topFim = document.getElementById('topCustomerDateFim');
+    const prodIni = document.getElementById('productDateInicio');
+    const prodFim = document.getElementById('productDateFim');
+
+    if (topIni && topIni.value) dtIni = topIni.value;
+    else if (prodIni && prodIni.value) dtIni = prodIni.value;
+
+    if (topFim && topFim.value) dtFim = topFim.value;
+    else if (prodFim && prodFim.value) dtFim = prodFim.value;
+
+    if (osDateInicio) osDateInicio.value = dtIni;
+    if (osDateFim) osDateFim.value = dtFim;
+
+    // Set Limit to 0 (Todos os Registros / Sem Limite) to bring all OS records searched
+    if (limitSelect) {
+        limitSelect.value = '0';
+    }
     
     // Scroll smoothly to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -860,7 +883,8 @@ function filterOSByClient(codPessoa, clientName) {
     // Execute OS search
     searchOS();
     
-    showToast(`Filtrando Ordens de Serviço do cliente: ${clientName}`, 'info');
+    const periodMsg = (dtIni || dtFim) ? ` (${dtIni || 'Início'} a ${dtFim || 'Hoje'})` : '';
+    showToast(`Exibindo todas as OS do cliente: ${clientName}${periodMsg}`, 'info');
 }
 
 window.filterOSByClient = filterOSByClient;
