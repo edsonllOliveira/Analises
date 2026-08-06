@@ -333,7 +333,28 @@ def list_os(
                 os.COD_ORDEMSERVICO, os.COD_EMPRESA, os.NUMEROORDEMSERVICO,
                 t.COD_PESSOA, CAST(p.NOME AS VARCHAR(250)), CAST(p.RAZAOSOCIAL AS VARCHAR(250)),
                 t.COD_NATUREZAOPERACAO, CAST(nat.DESCRICAO AS VARCHAR(250)) AS NATUREZA_DESCRICAO,
-                t.TOTAL, t.TOTALPRODUTOS, t.TOTALSERVICOS, t.TOTALICMS,
+                t.TOTAL, t.TOTALPRODUTOS, t.TOTALSERVICOS,
+                COALESCE((
+                    SELECT SUM(
+                        CASE 
+                            WHEN ti.CST IN ('51', '051', '151', '251') AND ti.BASECALCULOICMS > 0 AND ti.ALIQUOTAICMS > 0 THEN
+                                ti.BASECALCULOICMS * (
+                                    CASE 
+                                        WHEN COALESCE(ti.ALIQUOTAICMSDIFERIMENTO, 0) > 0 THEN
+                                            ti.ALIQUOTAICMS * (1.0 - ti.ALIQUOTAICMSDIFERIMENTO / 100.0)
+                                        WHEN ti.ALIQUOTAICMS > 12.0 THEN
+                                            12.0
+                                        ELSE
+                                            ti.ALIQUOTAICMS
+                                    END / 100.0
+                                )
+                            ELSE
+                                COALESCE(ti.TOTALICMS, 0)
+                        END
+                    )
+                    FROM TRANSACAO_ITEM ti
+                    WHERE ti.COD_TRANSACAO = os.COD_ORDEMSERVICO AND ti.COD_EMPRESA = os.COD_EMPRESA
+                ), t.TOTALICMS, 0) AS TOTALICMS,
                 s.VALORDESCONTO, t.DATAEMISSAO, p.IDENTIFICADOR
             FROM ORDEMSERVICO os
             JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
@@ -514,17 +535,17 @@ def get_os_detail(cod_os: int, cod_empresa: int = 1):
                 # ICMS da operação (cheio, sem diferimento)
                 icms_operacao = base_icms * (aliq_nom / 100.0)
 
-                # Determinar % de diferimento se não veio do banco
-                if aliq_dif == 0.0:
-                    if tot_icms > 0:
-                        aliq_efetiva = (tot_icms / base_icms) * 100.0
-                        aliq_dif = max(0.0, ((aliq_nom - aliq_efetiva) / aliq_nom) * 100.0)
-                    elif aliq_nom > 12.0:
-                        aliq_dif = ((aliq_nom - 12.0) / aliq_nom) * 100.0
+                # Se % diferimento não veio do banco, aplicar diferimento parcial padrão (12% efetivo)
+                if aliq_dif == 0.0 and aliq_nom > 12.0:
+                    aliq_dif = ((aliq_nom - 12.0) / aliq_nom) * 100.0
 
                 # Recalcular ICMS com diferimento
                 icms_diferido = icms_operacao * (aliq_dif / 100.0)
                 tot_icms = round(icms_operacao - icms_diferido, 2)
+            else:
+                icms_operacao = base_icms * (aliq_nom / 100.0) if aliq_nom > 0 else tot_icms
+                icms_diferido = 0.0
+                tot_icms = round(icms_operacao, 2)
 
             # Priority for original unit list price (Preço de Venda da Família da Lente):
             # 1. Direct item transaction lens family price (pf_direct.PRECO)
@@ -576,6 +597,14 @@ def get_os_detail(cod_os: int, cod_empresa: int = 1):
                 "aliquotacofins": float(ir[20]) if ir[20] is not None else 0.0,
                 "totalicmssubstituicao": float(ir[21]) if ir[21] is not None else 0.0
             })
+
+        if items:
+            header["total_icms_operacao"] = round(sum(it.get("icms_operacao", 0.0) for it in items), 2)
+            header["total_icms_diferido"] = round(sum(it.get("icms_diferido", 0.0) for it in items), 2)
+            header["total_icms"] = round(sum(it.get("totalicms", 0.0) for it in items), 2)
+        else:
+            header["total_icms_operacao"] = header["total_icms"]
+            header["total_icms_diferido"] = 0.0
             
         return {
             "header": header,

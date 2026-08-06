@@ -460,6 +460,8 @@ function populateModalData() {
     modalValorDesconto.value = (h.valor_desconto || 0).toFixed(2);
     modalTotalOS.value = (h.total || 0).toFixed(2);
     
+    const modalTotalICMSOperacao = document.getElementById('modalTotalICMSOperacao');
+    const modalTotalICMSDiferido = document.getElementById('modalTotalICMSDiferido');
     const modalTotalICMS = document.getElementById('modalTotalICMS');
     const modalTotalISSQN = document.getElementById('modalTotalISSQN');
     const modalTotalIPI = document.getElementById('modalTotalIPI');
@@ -467,6 +469,8 @@ function populateModalData() {
     const modalTotalCOFINS = document.getElementById('modalTotalCOFINS');
     const modalTotalICMSST = document.getElementById('modalTotalICMSST');
 
+    if (modalTotalICMSOperacao) modalTotalICMSOperacao.value = (h.total_icms_operacao || h.total_icms || 0).toFixed(2);
+    if (modalTotalICMSDiferido) modalTotalICMSDiferido.value = (h.total_icms_diferido || 0).toFixed(2);
     if (modalTotalICMS) modalTotalICMS.value = (h.total_icms || 0).toFixed(2);
     if (modalTotalISSQN) modalTotalISSQN.value = (h.total_issqn || 0).toFixed(2);
     if (modalTotalIPI) modalTotalIPI.value = (h.total_ipi || 0).toFixed(2);
@@ -658,7 +662,9 @@ function recalculateTotalsHeader() {
     if (!currentOS || !currentOS.items) return;
     
     let sumTotal = 0;
-    let sumICMS = 0;
+    let sumICMSOper = 0;
+    let sumICMSDif = 0;
+    let sumICMSEfet = 0;
     let sumISSQN = 0;
     let sumIPI = 0;
     let sumPIS = 0;
@@ -666,6 +672,8 @@ function recalculateTotalsHeader() {
     
     currentOS.items.forEach((it, idx) => {
         const totalEl = document.getElementById(`total_${idx}`);
+        const icmsoperEl = document.getElementById(`icmsoper_${idx}`);
+        const icmsdifEl = document.getElementById(`icmsdif_${idx}`);
         const vlicmsEl = document.getElementById(`vlicms_${idx}`);
         const vlissEl = document.getElementById(`vliss_${idx}`);
         const vlipiEl = document.getElementById(`vlipi_${idx}`);
@@ -673,14 +681,18 @@ function recalculateTotalsHeader() {
         const vlcofinsEl = document.getElementById(`vlcofins_${idx}`);
         
         const rowTotal = totalEl ? (parseFloat(totalEl.value) || 0) : (it.total || 0);
-        const rowICMS = vlicmsEl ? (parseFloat(vlicmsEl.value) || 0) : (it.totalicms || 0);
+        const rowICMSOper = icmsoperEl ? (parseFloat(icmsoperEl.value) || 0) : (it.icms_operacao || 0);
+        const rowICMSDif = icmsdifEl ? (parseFloat(icmsdifEl.value) || 0) : (it.icms_diferido || 0);
+        const rowICMSEfet = vlicmsEl ? (parseFloat(vlicmsEl.value) || 0) : (it.totalicms || 0);
         const rowISS = vlissEl ? (parseFloat(vlissEl.value) || 0) : (it.totalissqn || 0);
         const rowIPI = vlipiEl ? (parseFloat(vlipiEl.value) || 0) : (it.totalipi || 0);
         const rowPIS = vlpisEl ? (parseFloat(vlpisEl.value) || 0) : (it.totalpis || 0);
         const rowCOFINS = vlcofinsEl ? (parseFloat(vlcofinsEl.value) || 0) : (it.totalcofins || 0);
         
         sumTotal += rowTotal;
-        sumICMS += rowICMS;
+        sumICMSOper += rowICMSOper;
+        sumICMSDif += rowICMSDif;
+        sumICMSEfet += rowICMSEfet;
         sumISSQN += rowISS;
         sumIPI += rowIPI;
         sumPIS += rowPIS;
@@ -692,13 +704,17 @@ function recalculateTotalsHeader() {
     
     modalTotalOS.value = finalTotal.toFixed(2);
     
+    const modalTotalICMSOperacao = document.getElementById('modalTotalICMSOperacao');
+    const modalTotalICMSDiferido = document.getElementById('modalTotalICMSDiferido');
     const modalTotalICMS = document.getElementById('modalTotalICMS');
     const modalTotalISSQN = document.getElementById('modalTotalISSQN');
     const modalTotalIPI = document.getElementById('modalTotalIPI');
     const modalTotalPIS = document.getElementById('modalTotalPIS');
     const modalTotalCOFINS = document.getElementById('modalTotalCOFINS');
     
-    if (modalTotalICMS) modalTotalICMS.value = sumICMS.toFixed(2);
+    if (modalTotalICMSOperacao) modalTotalICMSOperacao.value = sumICMSOper.toFixed(2);
+    if (modalTotalICMSDiferido) modalTotalICMSDiferido.value = sumICMSDif.toFixed(2);
+    if (modalTotalICMS) modalTotalICMS.value = sumICMSEfet.toFixed(2);
     if (modalTotalISSQN) modalTotalISSQN.value = sumISSQN.toFixed(2);
     if (modalTotalIPI) modalTotalIPI.value = sumIPI.toFixed(2);
     if (modalTotalPIS) modalTotalPIS.value = sumPIS.toFixed(2);

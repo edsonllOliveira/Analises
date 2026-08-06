@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=1.4.5">
+    <link rel="stylesheet" href="style.css?v=1.4.6">
 </head>
 <body>
 
@@ -657,9 +657,19 @@
 
                 <!-- Totais de Tributos Section -->
                 <div class="section-title">Totais dos Tributos</div>
-                <div class="grid-form" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));">
+                <div class="grid-form" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
                     <div class="input-group">
-                        <label for="modalTotalICMS">Total ICMS (R$)</label>
+                        <label for="modalTotalICMSOperacao">ICMS Operação (R$)</label>
+                        <input type="number" id="modalTotalICMSOperacao" step="0.01" class="form-control text-right" value="0.00" readonly style="opacity:0.75;cursor:default;">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalTotalICMSDiferido">(-) ICMS Diferido (R$)</label>
+                        <input type="number" id="modalTotalICMSDiferido" step="0.01" class="form-control text-right" value="0.00" readonly style="opacity:0.75;cursor:default;color:#ef4444;">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="modalTotalICMS">(=) ICMS Efetivo (R$)</label>
                         <input type="number" id="modalTotalICMS" step="0.01" class="form-control text-right highlight-input-blue" value="0.00">
                     </div>
 
@@ -741,6 +751,6 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.4.5"></script>
+    <script src="app.js?v=1.4.6"></script>
 </body>
 </html>
