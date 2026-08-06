@@ -103,7 +103,12 @@ Ou:
 python run_server.py
 ```
 
-O servidor será iniciado em **`http://localhost:8000`** e a página será aberta automaticamente.
+### 3. Execução em Segundo Plano (Modo Oculto)
+Para rodar a aplicação sem abrir a janela preta do terminal (CMD):
+- Dê um duplo clique no arquivo **`start_server_hidden.vbs`**.
+- Ou execute no prompt: `wscript start_server_hidden.vbs`
+
+O servidor será iniciado em **`http://localhost:8011`** e a página será aberta automaticamente no navegador.
 
 ---
 
