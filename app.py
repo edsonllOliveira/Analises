@@ -862,9 +862,9 @@ def get_produtos_mais_vendidos(
                 params.extend(tipos_op_clean)
 
         if tipo_item_clean == "produtos":
-            sql += " AND (i.COD_ITEMTIPO = 1 OR ti.QUANTIDADEPRODUTO > 0)"
+            sql += " AND (ti.QUANTIDADEPRODUTO > 0 OR (COALESCE(ti.QUANTIDADESERVICO, 0) = 0 AND COALESCE(ti.TOTALISSQN, 0) = 0))"
         elif tipo_item_clean == "servicos":
-            sql += " AND (i.COD_ITEMTIPO = 2 OR ti.QUANTIDADESERVICO > 0 OR COALESCE(ti.TOTALISSQN, 0) > 0 OR COALESCE(ti.ALIQUOTAISSQN, 0) > 0)"
+            sql += " AND (ti.QUANTIDADESERVICO > 0 OR COALESCE(ti.TOTALISSQN, 0) > 0 OR COALESCE(ti.ALIQUOTAISSQN, 0) > 0)"
 
         if dt_ini:
             sql += " AND t.DATAEMISSAO >= ?"
@@ -1018,9 +1018,9 @@ def get_clientes_mais_compraram(
                 params.extend(tipos_op_clean)
 
         if tipo_item_clean == "produtos":
-            where_clauses.append("(i.COD_ITEMTIPO = 1 OR ti.QUANTIDADEPRODUTO > 0)")
+            where_clauses.append("(ti.QUANTIDADEPRODUTO > 0 OR (COALESCE(ti.QUANTIDADESERVICO, 0) = 0 AND COALESCE(ti.TOTALISSQN, 0) = 0))")
         elif tipo_item_clean == "servicos":
-            where_clauses.append("(i.COD_ITEMTIPO = 2 OR ti.QUANTIDADESERVICO > 0 OR COALESCE(ti.TOTALISSQN, 0) > 0 OR COALESCE(ti.ALIQUOTAISSQN, 0) > 0)")
+            where_clauses.append("(ti.QUANTIDADESERVICO > 0 OR COALESCE(ti.TOTALISSQN, 0) > 0 OR COALESCE(ti.ALIQUOTAISSQN, 0) > 0)")
 
         if cidade_clean:
             where_clauses.append("UPPER(TRIM(p.CIDADE)) = ?")
@@ -1108,6 +1108,7 @@ def get_clientes_mais_compraram(
             JOIN TRANSACAO t ON t.COD_TRANSACAO = ti.COD_TRANSACAO AND t.COD_EMPRESA = ti.COD_EMPRESA
             JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
             WHERE {where_sql}
             GROUP BY COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA')
             ORDER BY SUM(ti.TOTAL) DESC
