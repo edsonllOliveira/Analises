@@ -835,6 +835,111 @@ select:focus,
         padding: 2px 6px !important;
         font-size: 8pt !important;
     }
+
+    body.printing-client-items .main-content,
+    body.printing-client-items .modal-overlay,
+    body.printing-client-items .app-header {
+        display: none !important;
+    }
+
+    body.printing-client-items #printClientItemsContainer {
+        display: block !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+}
+
+#printClientItemsContainer {
+    display: none;
+}
+
+/* Print styles for client purchased items */
+.client-print-report {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #111827;
+    background: #ffffff;
+    padding: 10px;
+}
+
+.client-print-header {
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+}
+
+.client-print-title {
+    font-size: 14pt;
+    font-weight: 800;
+    color: #1e3a8a;
+    text-transform: uppercase;
+    margin: 0 0 4px 0;
+}
+
+.client-print-card {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-top: 8px;
+}
+
+.client-print-stats {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.client-print-stat-box {
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: #f8fafc;
+    text-align: center;
+}
+
+.client-print-stat-label {
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    color: #64748b;
+    font-weight: 600;
+    display: block;
+}
+
+.client-print-stat-value {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.client-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+}
+
+.client-print-table th {
+    background-color: #f1f5f9 !important;
+    color: #1e293b !important;
+    border: 1px solid #94a3b8 !important;
+    padding: 5px 6px;
+    font-weight: 700;
+    text-align: left;
+}
+
+.client-print-table td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 4px 6px;
+    color: #1e293b !important;
+}
+
+.client-print-table tfoot td {
+    background-color: #f8fafc !important;
+    font-weight: 700;
+    border-top: 2px solid #0f172a !important;
 }
 
 /* Rank Badges */
@@ -1098,5 +1203,48 @@ select:focus,
     opacity: 1;
 }
 
+/* Clickable customer rows and links */
+.clickable-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
 
+.clickable-row:hover td {
+    background: rgba(59, 130, 246, 0.08) !important;
+}
 
+.client-family-link {
+    color: #60a5fa;
+    text-decoration: none;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+}
+
+.client-family-link:hover {
+    color: #93c5fd;
+    text-decoration: underline;
+}
+
+.btn-table-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-table-action:hover {
+    background: var(--primary, #3b82f6);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+}

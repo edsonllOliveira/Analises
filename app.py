@@ -1209,6 +1209,547 @@ def get_clientes_mais_compraram(
         logger.error(f"Erro ao buscar clientes que mais compraram: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/familias/autocomplete")
+def get_familias_autocomplete(
+    q: str = Query(..., min_length=1, description="Termo de busca da família"),
+    limit: int = Query(20, ge=1, le=100)
+):
+    try:
+        q_clean = q.strip().upper()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        if q_clean.isdigit():
+            cur.execute(f"""
+                SELECT FIRST {limit} COD_PRODUTOFAMILIA, DESCRICAO
+                FROM PRODUTOFAMILIA
+                WHERE COD_PRODUTOFAMILIA = ? OR UPPER(DESCRICAO) LIKE ?
+                ORDER BY DESCRICAO
+            """, (int(q_clean), f"%{q_clean}%"))
+        else:
+            cur.execute(f"""
+                SELECT FIRST {limit} COD_PRODUTOFAMILIA, DESCRICAO
+                FROM PRODUTOFAMILIA
+                WHERE UPPER(DESCRICAO) LIKE ?
+                ORDER BY DESCRICAO
+            """, (f"%{q_clean}%",))
+            
+        rows = cur.fetchall()
+        conn.close()
+        
+        return [
+            {
+                "cod_familia": r[0],
+                "descricao": r[1].strip() if r[1] else f"Família {r[0]}"
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"Erro no autocomplete de famílias: {e}")
+        return []
+
+@app.get("/api/clientes/compraram-familia")
+def get_clientes_compraram_familia(
+    search: Optional[str] = Query(None, description="Descrição ou código do produto, lente ou família"),
+    familia: Optional[str] = Query(None, description="Compatibilidade com termo de busca"),
+    descricao: Optional[str] = Query(None, description="Compatibilidade com termo de busca"),
+    ordenar_por: Optional[str] = Query("valor", description="Métrica de ordenação: 'valor', 'quantidade' ou 'nome'"),
+    limit: int = Query(50, ge=0, le=500),
+    tipo_operacao: Optional[str] = Query(None, description="Tipos de operação separados por vírgula"),
+    data_inicio: Optional[str] = Query(None, description="Data inicial YYYY-MM-DD"),
+    data_fim: Optional[str] = Query(None, description="Data final YYYY-MM-DD")
+):
+    try:
+        raw_search = search or familia or descricao or ""
+        search_clean = str(raw_search).strip().upper() if not hasattr(raw_search, 'default') and str(raw_search).strip() else None
+
+        if not search_clean:
+            return {
+                "ordenar_por": "valor",
+                "termo_pesquisado": "",
+                "total_itens_encontrados": 0,
+                "total_familias_encontradas": 0,
+                "familias_encontradas": [],
+                "total_clientes_distintos": 0,
+                "total_faturamento": 0.0,
+                "total_quantidade": 0.0,
+                "total_compras": 0,
+                "ticket_medio_cliente": 0.0,
+                "items": []
+            }
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # 1. Localizar famílias correspondentes pela descrição ou ID
+        familias_encontradas = []
+        family_ids = []
+        s_upper = search_clean.upper()
+        s_lower = search_clean.lower()
+        s_title = search_clean.title()
+
+        if search_clean.isdigit():
+            cur.execute("""
+                SELECT COD_PRODUTOFAMILIA, DESCRICAO 
+                FROM PRODUTOFAMILIA 
+                WHERE COD_PRODUTOFAMILIA = ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
+                ORDER BY DESCRICAO
+            """, (int(search_clean), f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
+        else:
+            cur.execute("""
+                SELECT COD_PRODUTOFAMILIA, DESCRICAO 
+                FROM PRODUTOFAMILIA 
+                WHERE DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
+                ORDER BY DESCRICAO
+            """, (f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
+        
+        f_rows = cur.fetchall()
+        for r in f_rows:
+            if r[0] is not None:
+                family_ids.append(r[0])
+                familias_encontradas.append({
+                    "cod_familia": r[0],
+                    "descricao": r[1].strip() if r[1] else f"Família {r[0]}"
+                })
+
+        # 2. Localizar itens correspondentes pela descrição ou código do item
+        # Evitamos UPPER(DESCRICAO) para prevenir erro SQL -802 do Firebird em caracteres legados corrompidos
+        if search_clean.isdigit():
+            cur.execute("""
+                SELECT FIRST 1000 COD_ITEM 
+                FROM ITEM 
+                WHERE COD_ITEM = ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR COD_ITEM LIKE ?
+            """, (search_clean, f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%", f"%{s_upper}%"))
+        else:
+            cur.execute("""
+                SELECT FIRST 1000 COD_ITEM 
+                FROM ITEM 
+                WHERE COD_ITEM LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
+            """, (f"%{s_upper}%", f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
+        i_rows = cur.fetchall()
+        item_codes = [r[0].strip() for r in i_rows if r[0]]
+
+        if not family_ids and not item_codes:
+            conn.close()
+            return {
+                "ordenar_por": "valor",
+                "termo_pesquisado": search_clean,
+                "total_itens_encontrados": 0,
+                "total_familias_encontradas": 0,
+                "familias_encontradas": [],
+                "total_clientes_distintos": 0,
+                "total_faturamento": 0.0,
+                "total_quantidade": 0.0,
+                "total_compras": 0,
+                "ticket_medio_cliente": 0.0,
+                "items": []
+            }
+
+        # Configurar ordenação e limites
+        raw_order = str(ordenar_por) if ordenar_por and not hasattr(ordenar_por, 'default') else "valor"
+        if "quantidade" in raw_order.lower():
+            order_metric = "quantidade"
+            order_sql = "ORDER BY 5 DESC, 6 DESC"
+        elif "nome" in raw_order.lower():
+            order_metric = "nome"
+            order_sql = "ORDER BY 2 ASC"
+        else:
+            order_metric = "valor"
+            order_sql = "ORDER BY 6 DESC, 5 DESC"
+
+        limit_val = 50
+        if limit is not None and not hasattr(limit, 'default'):
+            try:
+                limit_val = int(limit)
+            except (ValueError, TypeError):
+                limit_val = 50
+
+        # Filtros de Operação Fiscal
+        tipos_op_clean = []
+        is_explicit_todos = False
+        if tipo_operacao and not hasattr(tipo_operacao, 'default'):
+            tp_str = str(tipo_operacao).strip()
+            if tp_str.lower() == 'todos':
+                is_explicit_todos = True
+            elif tp_str:
+                for part in tp_str.split(','):
+                    part_clean = part.strip()
+                    if part_clean.isdigit():
+                        tipos_op_clean.append(int(part_clean))
+
+        if not tipos_op_clean and not is_explicit_todos:
+            tipos_op_clean = [1, 11]
+
+        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
+        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+
+        # Montar filtros comuns para cada ramo do UNION ALL
+        branch_where = [
+            "t.SITUACAO = 3",
+            "(ti.FATURADO IS NULL OR ti.FATURADO IN ('T', 'S'))"
+        ]
+        branch_params = []
+
+        if tipos_op_clean:
+            if len(tipos_op_clean) == 1:
+                branch_where.append("nat.TIPO = ?")
+                branch_params.append(tipos_op_clean[0])
+            else:
+                ph_nat = ', '.join(['?'] * len(tipos_op_clean))
+                branch_where.append(f"nat.TIPO IN ({ph_nat})")
+                branch_params.extend(tipos_op_clean)
+
+        if dt_ini:
+            branch_where.append("t.DATAEMISSAO >= ?")
+            branch_params.append(dt_ini)
+
+        if dt_fim:
+            branch_where.append("t.DATAEMISSAO <= ?")
+            branch_params.append(dt_fim)
+
+        branch_where_sql = " AND ".join(branch_where)
+
+        union_branches = []
+        all_params = []
+
+        # Ramo 1: Famílias diretamente no ti.COD_PRODUTOFAMILIA
+        if family_ids:
+            max_batch = 800
+            for i in range(0, min(len(family_ids), 3200), max_batch):
+                batch_f = family_ids[i:i + max_batch]
+                ph_fam = ', '.join(['?'] * len(batch_f))
+                union_branches.append(f"""
+                    SELECT t.COD_PESSOA, SUM(ti.QUANTIDADE) AS QTD, SUM(ti.TOTAL) AS VALOR, COUNT(ti.COD_TRANSACAO) AS COMPRAS
+                    FROM TRANSACAO_ITEM ti
+                    JOIN TRANSACAO t ON t.COD_TRANSACAO = ti.COD_TRANSACAO AND t.COD_EMPRESA = ti.COD_EMPRESA
+                    LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+                    WHERE {branch_where_sql}
+                      AND ti.COD_PRODUTOFAMILIA IN ({ph_fam})
+                    GROUP BY t.COD_PESSOA
+                """)
+                all_params.extend(branch_params + batch_f)
+        # Ramo 2: Itens avulsos que contêm a descrição no nome do item (quando a busca é por item específico)
+        elif item_codes:
+            max_batch = 800
+            for i in range(0, min(len(item_codes), 1600), max_batch):
+                batch = item_codes[i:i + max_batch]
+                ph_item = ', '.join(['?'] * len(batch))
+
+                union_branches.append(f"""
+                    SELECT t.COD_PESSOA, SUM(ti.QUANTIDADE) AS QTD, SUM(ti.TOTAL) AS VALOR, COUNT(ti.COD_TRANSACAO) AS COMPRAS
+                    FROM TRANSACAO_ITEM ti
+                    JOIN TRANSACAO t ON t.COD_TRANSACAO = ti.COD_TRANSACAO AND t.COD_EMPRESA = ti.COD_EMPRESA
+                    LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+                    WHERE {branch_where_sql}
+                      AND ti.COD_ITEM IN ({ph_item})
+                    GROUP BY t.COD_PESSOA
+                """)
+                all_params.extend(branch_params + batch)
+
+        union_sql_body = " UNION ALL ".join(union_branches)
+        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+
+        sql_union = f"""
+            SELECT {first_clause}
+                u.COD_PESSOA,
+                COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || u.COD_PESSOA) AS NOME_CLIENTE,
+                COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
+                COALESCE(p.CNPJ, p.CPF, '') AS DOCUMENTO,
+                SUM(u.QTD) AS QTD_TOTAL,
+                SUM(u.VALOR) AS VALOR_TOTAL,
+                SUM(u.COMPRAS) AS QTD_COMPRAS
+            FROM ({union_sql_body}) u
+            JOIN PESSOA p ON p.COD_PESSOA = u.COD_PESSOA
+            WHERE (p.ATIVO = 'T' OR p.ATIVO = 'S' OR p.ATIVO IS NULL OR p.ATIVO = '1')
+            GROUP BY u.COD_PESSOA, COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || u.COD_PESSOA), COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), COALESCE(p.CNPJ, p.CPF, '')
+            {order_sql}
+        """
+
+        cur.execute(sql_union, tuple(all_params))
+        rows = cur.fetchall()
+        conn.close()
+
+        items = []
+        total_faturamento = 0.0
+        total_quantidade = 0.0
+        total_compras = 0
+
+        for idx, r in enumerate(rows, start=1):
+            cod_pessoa = r[0]
+            nome = r[1].strip() if r[1] else f"Cliente {cod_pessoa}"
+            cid = r[2].strip() if r[2] else "NÃO INFORMADA"
+            doc = r[3].strip() if r[3] else ""
+            qtd = float(r[4]) if r[4] is not None else 0.0
+            val_total = float(r[5]) if r[5] is not None else 0.0
+            qtd_compras = int(r[6]) if r[6] is not None else 0
+            preco_medio = (val_total / qtd) if qtd > 0 else 0.0
+
+            total_faturamento += val_total
+            total_quantidade += qtd
+            total_compras += qtd_compras
+
+            items.append({
+                "ranking": idx,
+                "cod_pessoa": cod_pessoa,
+                "nome_cliente": nome,
+                "cidade": cid,
+                "documento": doc,
+                "quantidade": qtd,
+                "valor_total": val_total,
+                "qtd_compras": qtd_compras,
+                "preco_medio_item": preco_medio
+            })
+
+        ticket_medio = (total_faturamento / len(items)) if len(items) > 0 else 0.0
+
+        return {
+            "ordenar_por": order_metric,
+            "termo_pesquisado": search_clean,
+            "total_itens_encontrados": len(item_codes),
+            "total_familias_encontradas": len(familias_encontradas),
+            "familias_encontradas": familias_encontradas[:20],
+            "total_clientes_distintos": len(items),
+            "total_faturamento": total_faturamento,
+            "total_quantidade": total_quantidade,
+            "total_compras": total_compras,
+            "ticket_medio_cliente": ticket_medio,
+            "items": items
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar clientes que compraram: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/clientes/{cod_pessoa}/itens-comprados")
+def get_cliente_itens_comprados(
+    cod_pessoa: int,
+    search: Optional[str] = Query(None, description="Descrição ou código do item ou família pesquisada"),
+    descricao: Optional[str] = Query(None),
+    familia: Optional[str] = Query(None),
+    tipo_operacao: Optional[str] = Query(None),
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
+    limit: int = Query(1500, ge=0, le=5000)
+):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # 1. Informações cadastrais do cliente
+        cur.execute("""
+            SELECT COD_PESSOA, 
+                   COALESCE(NULLIF(TRIM(RAZAOSOCIAL), ''), NULLIF(TRIM(NOME), ''), 'Cliente ' || COD_PESSOA) AS NOME,
+                   COALESCE(NULLIF(TRIM(CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
+                   COALESCE(CNPJ, CPF, '') AS DOCUMENTO,
+                   COALESCE(TELEFONECOMERCIAL1, TELEFONECELULAR, '') AS TELEFONE,
+                   COALESCE(EMAIL, '') AS EMAIL
+            FROM PESSOA
+            WHERE COD_PESSOA = ?
+        """, (cod_pessoa,))
+        c_row = cur.fetchone()
+        if not c_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Cliente não encontrado")
+
+        cliente_info = {
+            "cod_pessoa": c_row[0],
+            "nome_cliente": c_row[1].strip() if c_row[1] else f"Cliente {cod_pessoa}",
+            "cidade": c_row[2].strip() if c_row[2] else "NÃO INFORMADA",
+            "documento": c_row[3].strip() if c_row[3] else "",
+            "telefone": c_row[4].strip() if c_row[4] else "",
+            "email": c_row[5].strip() if c_row[5] else ""
+        }
+
+        # 2. Localizar IDs de famílias e códigos de itens que contêm o termo
+        raw_search = search or descricao or familia or ""
+        search_clean = str(raw_search).strip().upper() if not hasattr(raw_search, 'default') and str(raw_search).strip() else None
+
+        family_ids = []
+        item_codes = []
+        if search_clean:
+            s_upper = search_clean.upper()
+            s_lower = search_clean.lower()
+            s_title = search_clean.title()
+
+            if search_clean.isdigit():
+                cur.execute("""
+                    SELECT COD_PRODUTOFAMILIA 
+                    FROM PRODUTOFAMILIA 
+                    WHERE COD_PRODUTOFAMILIA = ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
+                """, (int(search_clean), f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
+            else:
+                cur.execute("""
+                    SELECT COD_PRODUTOFAMILIA 
+                    FROM PRODUTOFAMILIA 
+                    WHERE DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
+                """, (f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
+            f_rows = cur.fetchall()
+            family_ids = [r[0] for r in f_rows if r[0] is not None]
+
+            if search_clean.isdigit():
+                cur.execute("""
+                    SELECT FIRST 1000 COD_ITEM 
+                    FROM ITEM 
+                    WHERE COD_ITEM = ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR COD_ITEM LIKE ?
+                """, (search_clean, f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%", f"%{s_upper}%"))
+            else:
+                cur.execute("""
+                    SELECT FIRST 1000 COD_ITEM 
+                    FROM ITEM 
+                    WHERE COD_ITEM LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
+                """, (f"%{s_upper}%", f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
+            i_rows = cur.fetchall()
+            item_codes = [r[0].strip() for r in i_rows if r[0]]
+
+        # 3. Tipos de operação e datas
+        tipos_op_clean = []
+        is_explicit_todos = False
+        if tipo_operacao and not hasattr(tipo_operacao, 'default'):
+            tp_str = str(tipo_operacao).strip()
+            if tp_str.lower() == 'todos':
+                is_explicit_todos = True
+            elif tp_str:
+                for part in tp_str.split(','):
+                    part_clean = part.strip()
+                    if part_clean.isdigit():
+                        tipos_op_clean.append(int(part_clean))
+
+        if not tipos_op_clean and not is_explicit_todos:
+            tipos_op_clean = [1, 11]
+
+        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
+        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+        limit_val = 1500
+        if limit is not None and not hasattr(limit, 'default'):
+            try:
+                limit_val = int(limit)
+            except (ValueError, TypeError):
+                limit_val = 1500
+
+        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+
+        sql = f"""
+            SELECT {first_clause}
+                COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0) AS COD_FAMILIA,
+                COALESCE(NULLIF(TRIM(pf1.DESCRICAO), ''), NULLIF(TRIM(pf2.DESCRICAO), ''), NULLIF(TRIM(i.DESCRICAO), ''), 'Família ' || COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0)) AS NOME_FAMILIA,
+                SUM(ti.QUANTIDADE) AS QTD_TOTAL,
+                SUM(ti.TOTAL) AS VALOR_TOTAL,
+                COUNT(DISTINCT t.COD_TRANSACAO) AS QTD_COMPRAS,
+                MAX(t.DATAEMISSAO) AS ULTIMA_COMPRA,
+                MIN(t.DATAEMISSAO) AS PRIMEIRA_COMPRA
+            FROM TRANSACAO t
+            JOIN TRANSACAO_ITEM ti ON ti.COD_TRANSACAO = t.COD_TRANSACAO AND ti.COD_EMPRESA = t.COD_EMPRESA
+            LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
+            LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
+            LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
+            LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            WHERE t.SITUACAO = 3
+              AND (ti.FATURADO IS NULL OR ti.FATURADO IN ('T', 'S'))
+              AND t.COD_PESSOA = ?
+        """
+        params = [cod_pessoa]
+
+        if family_ids or item_codes:
+            item_conditions = []
+            if family_ids:
+                max_batch = 800
+                batch_f_conditions = []
+                for idx in range(0, min(len(family_ids), 3200), max_batch):
+                    sub_f = family_ids[idx:idx + max_batch]
+                    ph_f = ', '.join(['?'] * len(sub_f))
+                    batch_f_conditions.append(f"ti.COD_PRODUTOFAMILIA IN ({ph_f})")
+                    params.extend(sub_f)
+                if batch_f_conditions:
+                    item_conditions.append("(" + " OR ".join(batch_f_conditions) + ")")
+
+            if item_codes:
+                max_batch = 800
+                batch_conditions = []
+                for idx in range(0, min(len(item_codes), 1600), max_batch):
+                    sub_b = item_codes[idx:idx + max_batch]
+                    ph_i = ', '.join(['?'] * len(sub_b))
+                    batch_conditions.append(f"ti.COD_ITEM IN ({ph_i})")
+                    params.extend(sub_b)
+                if batch_conditions:
+                    item_conditions.append("(" + " OR ".join(batch_conditions) + ")")
+
+            if item_conditions:
+                sql += " AND (" + " OR ".join(item_conditions) + ")"
+
+        if tipos_op_clean:
+            if len(tipos_op_clean) == 1:
+                sql += " AND nat.TIPO = ?"
+                params.append(tipos_op_clean[0])
+            else:
+                ph_nat = ', '.join(['?'] * len(tipos_op_clean))
+                sql += f" AND nat.TIPO IN ({ph_nat})"
+                params.extend(tipos_op_clean)
+
+        if dt_ini:
+            sql += " AND t.DATAEMISSAO >= ?"
+            params.append(dt_ini)
+
+        if dt_fim:
+            sql += " AND t.DATAEMISSAO <= ?"
+            params.append(dt_fim)
+
+        sql += """
+            GROUP BY 1, 2
+            ORDER BY 4 DESC, 3 DESC
+        """
+
+        cur.execute(sql, tuple(params))
+        item_rows = cur.fetchall()
+        conn.close()
+
+        items = []
+        total_quantidade = 0.0
+        total_faturamento = 0.0
+        total_compras = 0
+
+        for r in item_rows:
+            cod_fam = r[0]
+            nome_fam = r[1].strip() if r[1] else f"Família {cod_fam}"
+            qtd = float(r[2]) if r[2] is not None else 0.0
+            val_total = float(r[3]) if r[3] is not None else 0.0
+            qtd_compras = int(r[4]) if r[4] is not None else 0
+            dt_ult = r[5].strftime('%Y-%m-%d') if r[5] else ""
+            dt_prim = r[6].strftime('%Y-%m-%d') if r[6] else ""
+            preco_medio = (val_total / qtd) if qtd > 0 else 0.0
+
+            total_quantidade += qtd
+            total_faturamento += val_total
+            total_compras += qtd_compras
+
+            items.append({
+                "cod_familia": cod_fam,
+                "nome_familia": nome_fam,
+                "quantidade": qtd,
+                "valor_total": val_total,
+                "preco_medio": preco_medio,
+                "qtd_compras": qtd_compras,
+                "ultima_compra": dt_ult,
+                "primeira_compra": dt_prim
+            })
+
+        ticket_medio = (total_faturamento / total_quantidade) if total_quantidade > 0 else 0.0
+
+        return {
+            "cliente": cliente_info,
+            "termo_pesquisado": search_clean or "",
+            "total_familias": len(items),
+            "total_quantidade": total_quantidade,
+            "total_faturamento": total_faturamento,
+            "total_transacoes": total_compras,
+            "ticket_medio_peca": ticket_medio,
+            "items": items
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao buscar itens comprados pelo cliente {cod_pessoa}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Serve static files
 os.makedirs("static", exist_ok=True)
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

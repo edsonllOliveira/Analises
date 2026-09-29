@@ -6,6 +6,12 @@ import webbrowser
 import threading
 import time
 import uvicorn
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 from app import app, get_db_config
 
 DEFAULT_PORT = 8011
@@ -72,8 +78,8 @@ def main():
     local_ip = get_local_ip()
 
     print(f"\n[+] Iniciando servidor web na porta {port} com suporte a Acesso de Rede:")
-    print(f"    👉 Acesso nesta máquina : http://localhost:{port}")
-    print(f"    🌐 Acesso por outros computadores da Rede : http://{local_ip}:{port}")
+    print(f"    - Acesso nesta maquina : http://localhost:{port}")
+    print(f"    - Acesso por outros computadores da Rede : http://{local_ip}:{port}")
     print("\n[+] Pressione Ctrl+C para encerrar o servidor.\n")
     
     def open_browser():

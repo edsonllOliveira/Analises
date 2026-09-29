@@ -61,6 +61,10 @@
                     <span class="tab-icon">👥</span>
                     <span>Clientes que Mais Compram</span>
                 </button>
+                <button id="tabClientesFamilia" class="module-tab">
+                    <span class="tab-icon">🛒</span>
+                    <span>Clientes que Compraram</span>
+                </button>
             </div>
         </div>
     </header>
@@ -620,6 +624,157 @@
                 </div>
             </section>
         </div>
+
+        <!-- Section Clientes que Compraram por Família -->
+        <div id="sectionClientesFamilia" class="tab-content hidden">
+            <!-- Filter & Action Card -->
+            <section class="card search-card no-print">
+                <div class="card-header" style="margin-bottom: 1rem;">
+                    <div>
+                        <h2>🛒 Relatório de Clientes que Compraram</h2>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">Consulte todos os clientes que compraram determinada família de produtos e veja as famílias adquiridas por cada cliente.</p>
+                    </div>
+                    <div>
+                        <button id="btnPrintClientesFamilia" class="btn btn-success" style="padding: 0.6rem 1.25rem; font-weight: 600;">
+                            🖨️ Imprimir Relatório
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-form" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+                    <div class="input-group" style="position: relative; grid-column: span 2;">
+                        <label for="familiaSearchInput">Descrição do Produto / Lente ou Família <span style="color: #ef4444;">*</span></label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🔍</span>
+                            <input type="text" id="familiaSearchInput" placeholder="Digite a descrição ou parte da descrição (ex: ASPHERIC, LT BCO, 1.56, CR39...)" autocomplete="off">
+                            <button type="button" id="btnClearFamiliaSearch" class="btn-clear-input hidden" title="Limpar busca">✕</button>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="familiaOrderSelect">Filtrar/Ordenar Por</label>
+                        <select id="familiaOrderSelect" class="select-highlight">
+                            <option value="valor" selected>💰 Maior Valor Comprado (R$)</option>
+                            <option value="quantidade">📦 Maior Quantidade Comprada</option>
+                            <option value="nome">🔤 Nome do Cliente (A-Z)</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label>Tipos de Operação</label>
+                        <div class="multi-select-container" id="familiaTipoOpMultiSelect">
+                            <button type="button" class="multi-select-btn" id="btnFamiliaTipoOpDropdown">
+                                <span id="lblFamiliaTipoOpSelected">🛒 Vendas</span>
+                                <span class="arrow">▼</span>
+                            </button>
+                            <div class="multi-select-dropdown hidden" id="dropdownFamiliaTipoOpList">
+                                <div class="multi-select-actions">
+                                    <button type="button" id="btnSelectAllFamiliaTipos" class="btn-link">Marcar Todos</button>
+                                    <span class="sep">|</span>
+                                    <button type="button" id="btnClearFamiliaTipos" class="btn-link">Desmarcar</button>
+                                </div>
+                                <div class="multi-select-options" id="containerFamiliaTiposOpCheckboxes">
+                                    <!-- Populated dynamically via JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="familiaLimitSelect">Top Clientes</label>
+                        <select id="familiaLimitSelect">
+                            <option value="20">Top 20 Clientes</option>
+                            <option value="50" selected>Top 50 Clientes</option>
+                            <option value="100">Top 100 Clientes</option>
+                            <option value="200">Top 200 Clientes</option>
+                            <option value="0">Todos os Clientes</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="familiaDateInicio">Data Inicial</label>
+                        <input type="date" id="familiaDateInicio" class="form-control">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="familiaDateFim">Data Final</label>
+                        <input type="date" id="familiaDateFim" class="form-control">
+                    </div>
+
+                    <div class="button-group" style="align-self: flex-end;">
+                        <button id="btnSearchClientesFamilia" class="btn btn-primary" style="width: 100%;">
+                            <span>Filtrar</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Bar -->
+            <div class="client-stats-bar no-print" id="familiaStatsBar">
+                <div class="stat-box">
+                    <span class="stat-label">Faturamento Total</span>
+                    <span id="statFamiliaFaturamento" class="stat-value text-green">R$ 0,00</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Volume Comprado</span>
+                    <span id="statFamiliaQtd" class="stat-value text-blue">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Clientes Distintos</span>
+                    <span id="statFamiliaDistintos" class="stat-value">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Ticket Médio / Cliente</span>
+                    <span id="statFamiliaTicket" class="stat-value">R$ 0,00</span>
+                </div>
+            </div>
+
+            <!-- Print Header -->
+            <div class="print-only print-header">
+                <div class="print-title">RELATÓRIO DE CLIENTES QUE COMPRARAM POR FAMÍLIA DE PRODUTO</div>
+                <div class="print-meta">
+                    <span id="familiaPrintDate">Data: --/--/----</span> | 
+                    <span id="familiaPrintFilter">Família: --</span>
+                </div>
+            </div>
+
+            <!-- Clientes List Table Card -->
+            <section class="card result-card print-full-width">
+                <div class="card-header no-print flex-between">
+                    <div>
+                        <h2>👥 Listagem de Clientes que Compraram</h2>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">💡 Clique em qualquer linha ou no botão para abrir a tela com as famílias compradas pelo cliente.</span>
+                    </div>
+                    <span id="familiaResultCountBadge" class="badge">0 clientes</span>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="data-table" id="clientesFamiliaTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 70px;" class="text-center">Rank</th>
+                                <th style="width: 90px;">Código</th>
+                                <th>Razão Social / Nome do Cliente</th>
+                                <th style="width: 160px;">Cidade</th>
+                                <th style="width: 150px;">CNPJ / CPF</th>
+                                <th class="text-right" style="width: 130px;">Qtd Comprada</th>
+                                <th class="text-right" style="width: 130px;">Preço Médio</th>
+                                <th class="text-right" style="width: 160px;">Total Comprado (R$)</th>
+                                <th class="text-center" style="width: 100px;">Nº Compras</th>
+                                <th class="text-center no-print" style="width: 130px;">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientesFamiliaTableBody">
+                            <tr>
+                                <td colspan="10" class="text-center empty-state">
+                                    Informe uma família de produto e clique no botão <strong>Filtrar</strong> para buscar os clientes.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
     </main>
 
     <!-- Edit Modal Workspace -->
@@ -748,9 +903,100 @@
         </div>
     </div>
 
+    <!-- Modal Detalhe Famílias Compradas pelo Cliente -->
+    <div id="clientFamilyItemsModal" class="modal-overlay hidden">
+        <div class="modal-container" style="max-width: 95vw; width: 95vw; height: 92vh; max-height: 92vh;">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <h2 id="modalItemsClientTitle">📦 Famílias Compradas: ---</h2>
+                    <span id="modalItemsClientSubtitle" class="modal-subtitle">Famílias adquiridas pelo cliente</span>
+                </div>
+                <button id="btnCloseItemsModal" class="btn-close">&times;</button>
+            </div>
+
+            <div class="modal-body" style="padding: 1rem 1.5rem;">
+                <!-- Client Details & Summary Stats -->
+                <div class="client-stats-bar" style="margin-bottom: 0.5rem;" id="modalItemsStatsBar">
+                    <div class="stat-box">
+                        <span class="stat-label">Total Faturado</span>
+                        <span id="modalStatFaturamento" class="stat-value text-green">R$ 0,00</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Volume de Peças</span>
+                        <span id="modalStatQtd" class="stat-value text-blue">0 un.</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Famílias Distintas</span>
+                        <span id="modalStatItens" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Transações / Compras</span>
+                        <span id="modalStatTransacoes" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Preço Médio / Peça</span>
+                        <span id="modalStatPrecoMedio" class="stat-value">R$ 0,00</span>
+                    </div>
+                </div>
+
+                <!-- Search and Tools inside Modal -->
+                <div class="flex-between no-print" style="margin-bottom: 0.5rem; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                    <div style="flex: 1; max-width: 400px; position: relative;">
+                        <input type="text" id="modalItemsFilterInput" class="form-control" placeholder="🔍 Filtrar famílias por código ou descrição..." style="padding-left: 0.75rem;">
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <span id="modalItemsCountBadge" class="badge">0 famílias listadas</span>
+                        <button id="btnPrintModalItems" class="btn btn-secondary btn-sm" style="font-weight: 600;">
+                            🖨️ Imprimir Famílias
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Items Table -->
+                <div class="table-responsive" style="flex: 1; overflow-y: auto; max-height: calc(92vh - 280px); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+                    <table class="data-table" id="modalItemsTable">
+                        <thead style="position: sticky; top: 0; z-index: 10;">
+                            <tr>
+                                <th style="width: 100px;" class="text-center">Cód. Família</th>
+                                <th>Descrição da Família de Produtos</th>
+                                <th class="text-right" style="width: 130px;">Qtd Comprada</th>
+                                <th class="text-right" style="width: 130px;">Preço Médio</th>
+                                <th class="text-right" style="width: 150px;">Total Comprado (R$)</th>
+                                <th class="text-center" style="width: 110px;">Nº Compras</th>
+                                <th class="text-center" style="width: 120px;">Primeira Compra</th>
+                                <th class="text-center" style="width: 120px;">Última Compra</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modalItemsTableBody">
+                            <tr>
+                                <td colspan="8" class="text-center empty-state">
+                                    Carregando famílias compradas pelo cliente...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="modal-footer flex-between">
+                <span id="modalClientContactInfo" style="font-size: 0.85rem; color: var(--text-secondary);">
+                    <!-- Telephone / Email info -->
+                </span>
+                <button id="btnCancelItemsModal" class="btn btn-tertiary">
+                    Fechar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Print Template for Client Purchased Items -->
+    <div id="printClientItemsContainer" class="print-only">
+        <!-- Rendered dynamically upon clicking print items -->
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.4.6"></script>
+    <script src="app.js?v=1.5.2"></script>
 </body>
 </html>
