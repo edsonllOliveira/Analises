@@ -670,11 +670,13 @@
                         <label>Tipos de Operação</label>
                         <div class="multi-select-container" id="familiaTipoOpMultiSelect">
                             <button type="button" class="multi-select-btn" id="btnFamiliaTipoOpDropdown">
-                                <span id="lblFamiliaTipoOpSelected">🛒 Vendas</span>
+                                <span id="lblFamiliaTipoOpSelected">🛒 Todas as Vendas</span>
                                 <span class="arrow">▼</span>
                             </button>
                             <div class="multi-select-dropdown hidden" id="dropdownFamiliaTipoOpList">
                                 <div class="multi-select-actions">
+                                    <button type="button" id="btnSelectVendasFamiliaTipos" class="btn-link" title="Seleciona apenas operações de vendas, serviços e faturamento">Apenas Vendas</button>
+                                    <span class="sep">|</span>
                                     <button type="button" id="btnSelectAllFamiliaTipos" class="btn-link">Marcar Todos</button>
                                     <span class="sep">|</span>
                                     <button type="button" id="btnClearFamiliaTipos" class="btn-link">Desmarcar</button>
@@ -1097,6 +1099,6 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.6.3"></script>
+    <script src="app.js?v=1.6.4"></script>
 </body>
 </html>

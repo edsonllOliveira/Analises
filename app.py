@@ -822,6 +822,7 @@ TIPO_OPERACAO_MAP = {
 }
 
 @app.get("/api/tipos-natureza")
+@app.get("/api/naturezas/tipos")
 def get_tipos_natureza():
     try:
         conn = get_db_connection()
@@ -1385,7 +1386,7 @@ def get_clientes_compraram_familia(
                         tipos_op_clean.append(int(part_clean))
 
         if not tipos_op_clean and not is_explicit_todos:
-            tipos_op_clean = [1, 11]
+            tipos_op_clean = [1, 8, 9, 10, 11, 12]
 
         dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
         dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
@@ -1632,7 +1633,7 @@ def get_cliente_itens_comprados(
                         tipos_op_clean.append(int(part_clean))
 
         if not tipos_op_clean and not is_explicit_todos:
-            tipos_op_clean = [1, 11]
+            tipos_op_clean = [1, 8, 9, 10, 11, 12]
 
         dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
         dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
@@ -1816,7 +1817,7 @@ def get_cliente_familia_ordens_servico(
                         tipos_op_clean.append(int(part_clean))
 
         if not tipos_op_clean and not is_explicit_todos:
-            tipos_op_clean = [1, 11]
+            tipos_op_clean = [1, 8, 9, 10, 11, 12]
 
         dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
         dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None

@@ -933,12 +933,18 @@ if (tabClientes) {
 if (tabProdutos) {
     tabProdutos.addEventListener('click', () => {
         switchActiveTab(tabProdutos, sectionProdutos);
+        if (containerTiposOpCheckboxes && !containerTiposOpCheckboxes.children.length) {
+            loadTiposOperacao();
+        }
     });
 }
 
 if (tabTopClientes) {
     tabTopClientes.addEventListener('click', () => {
         switchActiveTab(tabTopClientes, sectionTopClientes);
+        if (containerTopCustomerTiposOpCheckboxes && !containerTopCustomerTiposOpCheckboxes.children.length) {
+            loadTopCustomerTiposOperacao();
+        }
         if (topCustomersList.length === 0) {
             loadTopCustomersReport();
         }
@@ -948,6 +954,9 @@ if (tabTopClientes) {
 if (tabClientesFamilia) {
     tabClientesFamilia.addEventListener('click', () => {
         switchActiveTab(tabClientesFamilia, sectionClientesFamilia);
+        if (containerFamiliaTiposOpCheckboxes && !containerFamiliaTiposOpCheckboxes.children.length) {
+            loadFamiliaTiposOperacao();
+        }
     });
 }
 
@@ -1201,9 +1210,12 @@ const productPrintFilter = document.getElementById('productPrintFilter');
 
 // Multi-select Dropdown Handlers
 if (btnTipoOpDropdown && dropdownTipoOpList) {
-    btnTipoOpDropdown.addEventListener('click', (e) => {
+    btnTipoOpDropdown.addEventListener('click', async (e) => {
         e.stopPropagation();
         dropdownTipoOpList.classList.toggle('hidden');
+        if (containerTiposOpCheckboxes && !containerTiposOpCheckboxes.children.length) {
+            await loadTiposOperacao();
+        }
     });
 
     document.addEventListener('click', (e) => {
@@ -1602,9 +1614,12 @@ const topCustomerPrintFilter = document.getElementById('topCustomerPrintFilter')
 
 // Multi-select Dropdown Event Handlers
 if (btnTopCustomerTipoOpDropdown && dropdownTopCustomerTipoOpList) {
-    btnTopCustomerTipoOpDropdown.addEventListener('click', (e) => {
+    btnTopCustomerTipoOpDropdown.addEventListener('click', async (e) => {
         e.stopPropagation();
         dropdownTopCustomerTipoOpList.classList.toggle('hidden');
+        if (containerTopCustomerTiposOpCheckboxes && !containerTopCustomerTiposOpCheckboxes.children.length) {
+            await loadTopCustomerTiposOperacao();
+        }
     });
 
     document.addEventListener('click', (e) => {
@@ -1691,9 +1706,13 @@ async function loadCidades() {
 async function loadTopCustomerTiposOperacao() {
     if (!containerTopCustomerTiposOpCheckboxes) return;
     try {
+        if (!containerTopCustomerTiposOpCheckboxes.children.length) {
+            containerTopCustomerTiposOpCheckboxes.innerHTML = '<div style="padding: 8px; color: #94a3b8; font-size: 0.8rem;">Carregando operações...</div>';
+        }
         const res = await fetch('/api/tipos-natureza');
         if (!res.ok) return;
         topCustomerTiposData = await res.json();
+        if (!Array.isArray(topCustomerTiposData)) return;
         
         containerTopCustomerTiposOpCheckboxes.innerHTML = '';
         topCustomerTiposData.forEach(t => {
@@ -2083,8 +2102,12 @@ const btnFamiliaTipoOpDropdown = document.getElementById('btnFamiliaTipoOpDropdo
 const dropdownFamiliaTipoOpList = document.getElementById('dropdownFamiliaTipoOpList');
 const containerFamiliaTiposOpCheckboxes = document.getElementById('containerFamiliaTiposOpCheckboxes');
 const lblFamiliaTipoOpSelected = document.getElementById('lblFamiliaTipoOpSelected');
+const btnSelectVendasFamiliaTipos = document.getElementById('btnSelectVendasFamiliaTipos');
 const btnSelectAllFamiliaTipos = document.getElementById('btnSelectAllFamiliaTipos');
 const btnClearFamiliaTipos = document.getElementById('btnClearFamiliaTipos');
+
+// Operações de venda para relatório de famílias/clientes
+const FAMILIA_VENDA_TIPOS = [1, 8, 9, 10, 11, 12];
 
 // Stats bar elements
 const statFamiliaFaturamento = document.getElementById('statFamiliaFaturamento');
@@ -2139,9 +2162,12 @@ let currentFamilyOrdersList = [];
 
 // Multi-select Dropdown Event Handlers for Familia
 if (btnFamiliaTipoOpDropdown && dropdownFamiliaTipoOpList) {
-    btnFamiliaTipoOpDropdown.addEventListener('click', (e) => {
+    btnFamiliaTipoOpDropdown.addEventListener('click', async (e) => {
         e.stopPropagation();
         dropdownFamiliaTipoOpList.classList.toggle('hidden');
+        if (containerFamiliaTiposOpCheckboxes && !containerFamiliaTiposOpCheckboxes.children.length) {
+            await loadFamiliaTiposOperacao();
+        }
     });
 
     document.addEventListener('click', (e) => {
@@ -2161,19 +2187,33 @@ function updateFamiliaTipoOpLabel() {
     if (!lblFamiliaTipoOpSelected || !containerFamiliaTiposOpCheckboxes) return;
     const allCbs = containerFamiliaTiposOpCheckboxes.querySelectorAll('input[type="checkbox"]');
     const checkedCbs = containerFamiliaTiposOpCheckboxes.querySelectorAll('input[type="checkbox"]:checked');
+    const checkedVals = Array.from(checkedCbs).map(c => parseInt(c.value, 10));
     
+    const isExactVendas = checkedVals.length === FAMILIA_VENDA_TIPOS.length && 
+                          FAMILIA_VENDA_TIPOS.every(v => checkedVals.includes(v));
+
     if (checkedCbs.length === 0) {
-        lblFamiliaTipoOpSelected.textContent = '🛒 Vendas';
+        lblFamiliaTipoOpSelected.textContent = '🛒 Todas as Vendas';
     } else if (checkedCbs.length === allCbs.length) {
         lblFamiliaTipoOpSelected.textContent = '🌐 Todos os Tipos';
+    } else if (isExactVendas) {
+        lblFamiliaTipoOpSelected.textContent = '🛒 Todas as Vendas (Vendas, Serviços, Ind.)';
     } else if (checkedCbs.length === 1) {
-        const item = familiaTiposData.find(t => String(t.tipo) === checkedCbs[0].value);
+        const item = Array.isArray(familiaTiposData) ? familiaTiposData.find(t => String(t.tipo) === checkedCbs[0].value) : null;
         lblFamiliaTipoOpSelected.textContent = item ? item.descricao : `1 Tipo Selecionado`;
-    } else if (checkedCbs.length === 2 && Array.from(checkedCbs).every(c => c.value === '1' || c.value === '11')) {
-        lblFamiliaTipoOpSelected.textContent = '🛒 Vendas';
     } else {
         lblFamiliaTipoOpSelected.textContent = `🏷️ ${checkedCbs.length} Tipos Selecionados`;
     }
+}
+
+if (btnSelectVendasFamiliaTipos && containerFamiliaTiposOpCheckboxes) {
+    btnSelectVendasFamiliaTipos.addEventListener('click', () => {
+        containerFamiliaTiposOpCheckboxes.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            const val = parseInt(cb.value, 10);
+            cb.checked = FAMILIA_VENDA_TIPOS.includes(val);
+        });
+        updateFamiliaTipoOpLabel();
+    });
 }
 
 if (btnSelectAllFamiliaTipos && containerFamiliaTiposOpCheckboxes) {
@@ -2193,11 +2233,16 @@ if (btnClearFamiliaTipos && containerFamiliaTiposOpCheckboxes) {
 async function loadFamiliaTiposOperacao() {
     if (!containerFamiliaTiposOpCheckboxes) return;
     try {
-        const res = await fetch('/api/naturezas/tipos');
+        if (!containerFamiliaTiposOpCheckboxes.children.length) {
+            containerFamiliaTiposOpCheckboxes.innerHTML = '<div style="padding: 8px; color: #94a3b8; font-size: 0.8rem;">Carregando operações...</div>';
+        }
+        const res = await fetch('/api/tipos-natureza');
+        if (!res.ok) return;
         familiaTiposData = await res.json();
+        if (!Array.isArray(familiaTiposData)) return;
         
         containerFamiliaTiposOpCheckboxes.innerHTML = familiaTiposData.map(t => {
-            const isChecked = (t.tipo === 1 || t.tipo === 11) ? 'checked' : '';
+            const isChecked = FAMILIA_VENDA_TIPOS.includes(t.tipo) ? 'checked' : '';
             return `
                 <label class="checkbox-option">
                     <input type="checkbox" value="${t.tipo}" ${isChecked}>
@@ -3482,13 +3527,13 @@ if (btnSearchClientesFamilia) {
 
 // Initialize Application (Carrega apenas a configuração do sistema e selects, sem disparar buscas pesadas no banco)
 document.addEventListener('DOMContentLoaded', async () => {
-    await loadDatabaseSelector();
-    await checkStatus();
-    await loadNaturezas();
-    await loadTiposOperacao();
-    await loadCidades();
-    await loadTopCustomerTiposOperacao();
-    await loadFamiliaTiposOperacao();
+    try { await loadDatabaseSelector(); } catch (e) { console.error('Erro loadDatabaseSelector:', e); }
+    try { await checkStatus(); } catch (e) { console.error('Erro checkStatus:', e); }
+    try { await loadNaturezas(); } catch (e) { console.error('Erro loadNaturezas:', e); }
+    try { await loadTiposOperacao(); } catch (e) { console.error('Erro loadTiposOperacao:', e); }
+    try { await loadCidades(); } catch (e) { console.error('Erro loadCidades:', e); }
+    try { await loadTopCustomerTiposOperacao(); } catch (e) { console.error('Erro loadTopCustomerTiposOperacao:', e); }
+    try { await loadFamiliaTiposOperacao(); } catch (e) { console.error('Erro loadFamiliaTiposOperacao:', e); }
 });
 
 
