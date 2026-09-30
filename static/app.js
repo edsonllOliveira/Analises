@@ -939,6 +939,9 @@ if (tabProdutos) {
 if (tabTopClientes) {
     tabTopClientes.addEventListener('click', () => {
         switchActiveTab(tabTopClientes, sectionTopClientes);
+        if (topCustomersList.length === 0) {
+            loadTopCustomersReport();
+        }
     });
 }
 
@@ -1577,8 +1580,13 @@ const btnTopCustomerTipoOpDropdown = document.getElementById('btnTopCustomerTipo
 const dropdownTopCustomerTipoOpList = document.getElementById('dropdownTopCustomerTipoOpList');
 const containerTopCustomerTiposOpCheckboxes = document.getElementById('containerTopCustomerTiposOpCheckboxes');
 const lblTopCustomerTipoOpSelected = document.getElementById('lblTopCustomerTipoOpSelected');
+const btnSelectVendasTopCustomerTipos = document.getElementById('btnSelectVendasTopCustomerTipos');
 const btnSelectAllTopCustomerTipos = document.getElementById('btnSelectAllTopCustomerTipos');
 const btnClearTopCustomerTipos = document.getElementById('btnClearTopCustomerTipos');
+
+// Tipos de operação que representam vendas e faturamento de clientes:
+// 1 (Vendas), 8 (Remessas e Serviços), 9 (Bonificação/Brindes), 10 (Industrialização), 11 (Vendas Entrega Futura), 12 (Venda de Ativo/Imobilizado)
+const TOP_CUSTOMER_VENDA_TIPOS = [1, 8, 9, 10, 11, 12];
 
 const statTopCustomerFaturamento = document.getElementById('statTopCustomerFaturamento');
 const statTopCustomerQtd = document.getElementById('statTopCustomerQtd');
@@ -1616,19 +1624,33 @@ function updateTopCustomerTipoOpLabel() {
     if (!lblTopCustomerTipoOpSelected || !containerTopCustomerTiposOpCheckboxes) return;
     const allCbs = containerTopCustomerTiposOpCheckboxes.querySelectorAll('input[type="checkbox"]');
     const checkedCbs = containerTopCustomerTiposOpCheckboxes.querySelectorAll('input[type="checkbox"]:checked');
+    const checkedVals = Array.from(checkedCbs).map(c => parseInt(c.value, 10));
     
+    const isExactVendas = checkedVals.length === TOP_CUSTOMER_VENDA_TIPOS.length && 
+                          TOP_CUSTOMER_VENDA_TIPOS.every(v => checkedVals.includes(v));
+
     if (checkedCbs.length === 0) {
-        lblTopCustomerTipoOpSelected.textContent = '🛒 Vendas';
+        lblTopCustomerTipoOpSelected.textContent = '🛒 Todas as Vendas';
     } else if (checkedCbs.length === allCbs.length) {
         lblTopCustomerTipoOpSelected.textContent = '🌐 Todos os Tipos';
+    } else if (isExactVendas) {
+        lblTopCustomerTipoOpSelected.textContent = '🛒 Todas as Vendas (Vendas, Serviços, Ind.)';
     } else if (checkedCbs.length === 1) {
         const item = topCustomerTiposData.find(t => String(t.tipo) === checkedCbs[0].value);
         lblTopCustomerTipoOpSelected.textContent = item ? item.descricao : `1 Tipo Selecionado`;
-    } else if (checkedCbs.length === 2 && Array.from(checkedCbs).every(c => c.value === '1' || c.value === '11')) {
-        lblTopCustomerTipoOpSelected.textContent = '🛒 Vendas';
     } else {
         lblTopCustomerTipoOpSelected.textContent = `🏷️ ${checkedCbs.length} Tipos Selecionados`;
     }
+}
+
+if (btnSelectVendasTopCustomerTipos && containerTopCustomerTiposOpCheckboxes) {
+    btnSelectVendasTopCustomerTipos.addEventListener('click', () => {
+        containerTopCustomerTiposOpCheckboxes.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            const val = parseInt(cb.value, 10);
+            cb.checked = TOP_CUSTOMER_VENDA_TIPOS.includes(val);
+        });
+        updateTopCustomerTipoOpLabel();
+    });
 }
 
 if (btnSelectAllTopCustomerTipos && containerTopCustomerTiposOpCheckboxes) {
@@ -1677,7 +1699,7 @@ async function loadTopCustomerTiposOperacao() {
         topCustomerTiposData.forEach(t => {
             const label = document.createElement('label');
             label.className = 'checkbox-option';
-            const isVendaDefault = (t.tipo === 1 || t.tipo === 11);
+            const isVendaDefault = TOP_CUSTOMER_VENDA_TIPOS.includes(t.tipo);
             label.innerHTML = `
                 <input type="checkbox" value="${t.tipo}" ${isVendaDefault ? 'checked' : ''}>
                 <span>${escapeHtml(t.descricao)}</span>
@@ -1960,7 +1982,8 @@ function renderTopCustomersTable(items, orderMetric) {
         const highlightValClass = !isByQuantity ? 'style="font-weight: 700; color: #60a5fa;"' : '';
         const highlightQtdClass = isByQuantity ? 'style="font-weight: 700; color: #34d399;"' : '';
 
-        const cleanName = escapeHtml(item.nome_cliente).replace(/'/g, "\\'");
+        const displayName = item.nome_fantasia || item.nome_cliente || `Cliente ${item.cod_pessoa}`;
+        const cleanName = escapeHtml(displayName).replace(/'/g, "\\'");
 
         return `
             <tr>
@@ -1971,8 +1994,9 @@ function renderTopCustomersTable(items, orderMetric) {
                 <td>
                     <a href="#" class="client-os-link" onclick="event.preventDefault(); window.filterOSByClient('${item.cod_pessoa}', '${cleanName}');" title="Clique para carregar as Ordens de Serviço (OS) deste cliente">
                         <span class="link-icon">🔍</span>
-                        <strong>${escapeHtml(item.nome_cliente)}</strong>
+                        <strong>${escapeHtml(displayName)}</strong>
                     </a>
+                    ${item.razao_social && item.razao_social !== displayName ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 1.5rem; margin-top: 1px;">${escapeHtml(item.razao_social)}</div>` : ''}
                 </td>
                 <td><span class="badge badge-blue">${escapeHtml(item.cidade)}</span></td>
                 <td><code>${escapeHtml(item.documento || 'N/A')}</code></td>

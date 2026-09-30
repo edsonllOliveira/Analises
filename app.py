@@ -1053,9 +1053,10 @@ def get_clientes_mais_compraram(
                         tipos_op_clean.append(int(part_clean))
 
         # Se nenhum tipo específico for informado e não for solicitado 'todos' explicitamente,
-        # considera APENAS operações de venda (TIPO = 1: Vendas e TIPO = 11: Vendas p/ Entrega Futura)
+        # considera TODOS os tipos de operação que representam vendas e faturamento para clientes:
+        # 1 (Vendas), 8 (Remessas e Serviços), 9 (Bonificação/Brindes), 10 (Industrialização), 11 (Vendas Entrega Futura), 12 (Venda de Ativo/Imobilizado)
         if not tipos_op_clean and not is_explicit_todos:
-            tipos_op_clean = [1, 11]
+            tipos_op_clean = [1, 8, 9, 10, 11, 12]
 
         tipo_item_clean = str(tipo_item).strip().lower() if tipo_item and not hasattr(tipo_item, 'default') else "todos"
 
@@ -1069,7 +1070,8 @@ def get_clientes_mais_compraram(
             "p.COD_PESSOA IS NOT NULL",
             "(p.ATIVO = 'T' OR p.ATIVO = 'S' OR p.ATIVO IS NULL OR p.ATIVO = '1')",
             "t.SITUACAO = 3",
-            "(ti.FATURADO IS NULL OR ti.FATURADO IN ('T', 'S'))"
+            "(ti.FATURADO IS NULL OR ti.FATURADO IN ('T', 'S'))",
+            "(nat.ENTRADA IS NULL OR nat.ENTRADA IN ('F', 'N'))"
         ]
         params = []
 
@@ -1112,7 +1114,8 @@ def get_clientes_mais_compraram(
         sql_customers = f"""
             SELECT {first_clause}
                 p.COD_PESSOA,
-                COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || p.COD_PESSOA) AS NOME_CLIENTE,
+                COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || p.COD_PESSOA) AS NOME_FANTASIA,
+                COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), '') AS RAZAO_SOCIAL,
                 COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
                 COALESCE(p.CNPJ, p.CPF, '') AS DOCUMENTO,
                 SUM(ti.QUANTIDADE) AS QTD_TOTAL,
@@ -1124,7 +1127,7 @@ def get_clientes_mais_compraram(
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
             LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
             WHERE {where_sql}
-            GROUP BY p.COD_PESSOA, COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || p.COD_PESSOA), COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), COALESCE(p.CNPJ, p.CPF, '')
+            GROUP BY p.COD_PESSOA, COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || p.COD_PESSOA), COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), ''), COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), COALESCE(p.CNPJ, p.CPF, '')
             {order_sql}
         """
 
@@ -1138,12 +1141,13 @@ def get_clientes_mais_compraram(
 
         for idx, r in enumerate(customer_rows, start=1):
             cod_pessoa = r[0]
-            nome = r[1].strip() if r[1] else f"Cliente {cod_pessoa}"
-            cid = r[2].strip() if r[2] else "NÃO INFORMADA"
-            doc = r[3].strip() if r[3] else ""
-            qtd = float(r[4]) if r[4] is not None else 0.0
-            val_total = float(r[5]) if r[5] is not None else 0.0
-            qtd_trans = int(r[6]) if r[6] is not None else 0
+            nome_fantasia = r[1].strip() if r[1] else f"Cliente {cod_pessoa}"
+            razao_social = r[2].strip() if r[2] else ""
+            cid = r[3].strip() if r[3] else "NÃO INFORMADA"
+            doc = r[4].strip() if r[4] else ""
+            qtd = float(r[5]) if r[5] is not None else 0.0
+            val_total = float(r[6]) if r[6] is not None else 0.0
+            qtd_trans = int(r[7]) if r[7] is not None else 0
             preco_medio = (val_total / qtd) if qtd > 0 else 0.0
 
             total_faturamento += val_total
@@ -1153,7 +1157,9 @@ def get_clientes_mais_compraram(
             items.append({
                 "ranking": idx,
                 "cod_pessoa": cod_pessoa,
-                "nome_cliente": nome,
+                "nome_cliente": nome_fantasia,
+                "nome_fantasia": nome_fantasia,
+                "razao_social": razao_social,
                 "cidade": cid,
                 "documento": doc,
                 "quantidade": qtd,
