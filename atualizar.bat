@@ -30,15 +30,15 @@ if not exist "app.py" (
         git remote add origin https://github.com/edsonllOliveira/Analises.git
     )
     echo [+] Baixando atualizacoes do GitHub...
-    git pull https://github.com/edsonllOliveira/Analises.git main
+    git pull origin main
 )
 
 REM 2. Se o pull falhar por conta de divergencias locais, forca a sincronizacao
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo [!] Sincronizando com a versao mais recente do remoto...
-    git fetch https://github.com/edsonllOliveira/Analises.git main
-    git reset --hard FETCH_HEAD
+    git fetch origin main
+    git reset --hard origin/main
 )
 
 echo.

@@ -38,7 +38,11 @@
                     <span class="status-dot"></span>
                     <span id="dbStatusText">Verificando banco...</span>
                 </div>
-                <button id="btnRefreshStatus" class="btn-icon" title="Atualizar Conexão">🔄</button>
+                <button id="btnRefreshStatus" class="btn-icon" title="Atualizar Conexão com o Banco">🔄</button>
+                <button id="btnUpdateGit" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.65rem; font-size: 0.8rem; font-weight: 600;" title="Verificar e baixar atualizações do GitHub">
+                    <span>⬇️</span>
+                    <span>Atualizar Sistema</span>
+                </button>
             </div>
         </div>
 
@@ -177,7 +181,7 @@
                         <label for="clientSearchInput">Buscar Cliente</label>
                         <div class="input-with-icon">
                             <span class="input-icon">🔍</span>
-                            <input type="text" id="clientSearchInput" placeholder="Digite Razão Social, Fantasia, CNPJ ou IE..." autocomplete="off">
+                            <input type="text" id="clientSearchInput" placeholder="Digite Nome, Razão Social, CNPJ ou IE..." autocomplete="off">
                         </div>
                     </div>
 
@@ -244,8 +248,8 @@
                     <table class="data-table" id="clientsTable">
                         <thead>
                             <tr>
+                                <th>Nome</th>
                                 <th>Razão Social</th>
-                                <th>Nome Fantasia</th>
                                 <th>CNPJ / CPF</th>
                                 <th>Inscrição Estadual (IE)</th>
                                 <th class="text-center">Enquadramento Fiscal</th>
@@ -450,7 +454,7 @@
                         <label for="topCustomerSearchInput">Buscar Cliente</label>
                         <div class="input-with-icon">
                             <span class="input-icon">🔍</span>
-                            <input type="text" id="topCustomerSearchInput" placeholder="Razão social, nome ou CNPJ/CPF..." autocomplete="off">
+                            <input type="text" id="topCustomerSearchInput" placeholder="Nome, razão social ou CNPJ/CPF..." autocomplete="off">
                         </div>
                     </div>
 
@@ -604,7 +608,7 @@
                             <tr>
                                 <th style="width: 70px;" class="text-center">Rank</th>
                                 <th style="width: 90px;">Código</th>
-                                <th>Razão Social / Nome do Cliente</th>
+                                <th>Nome do Cliente</th>
                                 <th style="width: 160px;">Cidade</th>
                                 <th style="width: 150px;">CNPJ / CPF</th>
                                 <th class="text-right" style="width: 130px;">Qtd Comprada</th>
@@ -754,14 +758,14 @@
                             <tr>
                                 <th style="width: 70px;" class="text-center">Rank</th>
                                 <th style="width: 90px;">Código</th>
-                                <th>Razão Social / Nome do Cliente</th>
+                                <th>Nome Fantasia</th>
                                 <th style="width: 160px;">Cidade</th>
                                 <th style="width: 150px;">CNPJ / CPF</th>
                                 <th class="text-right" style="width: 130px;">Qtd Comprada</th>
                                 <th class="text-right" style="width: 130px;">Preço Médio</th>
                                 <th class="text-right" style="width: 160px;">Total Comprado (R$)</th>
                                 <th class="text-center" style="width: 100px;">Nº Compras</th>
-                                <th class="text-center no-print" style="width: 130px;">Ação</th>
+                                <th class="text-center no-print" style="width: 175px;">Ações</th>
                             </tr>
                         </thead>
                         <tbody id="clientesFamiliaTableBody">
@@ -909,7 +913,7 @@
             <div class="modal-header">
                 <div class="modal-title-group">
                     <h2 id="modalItemsClientTitle">📦 Famílias Compradas: ---</h2>
-                    <span id="modalItemsClientSubtitle" class="modal-subtitle">Famílias adquiridas pelo cliente</span>
+                    <span id="modalItemsClientSubtitle" class="modal-subtitle">Famílias adquiridas pelo cliente • Clique na linha ou em "Ver OSs" para detalhar as Ordens de Serviço</span>
                 </div>
                 <button id="btnCloseItemsModal" class="btn-close">&times;</button>
             </div>
@@ -946,8 +950,8 @@
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
                         <span id="modalItemsCountBadge" class="badge">0 famílias listadas</span>
-                        <button id="btnPrintModalItems" class="btn btn-secondary btn-sm" style="font-weight: 600;">
-                            🖨️ Imprimir Famílias
+                        <button id="btnPrintModalItems" class="btn btn-success btn-sm" style="font-weight: 600;">
+                            🖨️ Imprimir Relatório do Cliente
                         </button>
                     </div>
                 </div>
@@ -957,19 +961,20 @@
                     <table class="data-table" id="modalItemsTable">
                         <thead style="position: sticky; top: 0; z-index: 10;">
                             <tr>
-                                <th style="width: 100px;" class="text-center">Cód. Família</th>
+                                <th style="width: 90px;" class="text-center">Cód. Família</th>
                                 <th>Descrição da Família de Produtos</th>
-                                <th class="text-right" style="width: 130px;">Qtd Comprada</th>
-                                <th class="text-right" style="width: 130px;">Preço Médio</th>
-                                <th class="text-right" style="width: 150px;">Total Comprado (R$)</th>
-                                <th class="text-center" style="width: 110px;">Nº Compras</th>
-                                <th class="text-center" style="width: 120px;">Primeira Compra</th>
-                                <th class="text-center" style="width: 120px;">Última Compra</th>
+                                <th class="text-right" style="width: 120px;">Qtd Comprada</th>
+                                <th class="text-right" style="width: 120px;">Preço Médio</th>
+                                <th class="text-right" style="width: 140px;">Total Comprado (R$)</th>
+                                <th class="text-center" style="width: 100px;">Nº Compras</th>
+                                <th class="text-center" style="width: 110px;">Primeira Compra</th>
+                                <th class="text-center" style="width: 110px;">Última Compra</th>
+                                <th class="text-center no-print" style="width: 120px;">Ordens de Serviço</th>
                             </tr>
                         </thead>
                         <tbody id="modalItemsTableBody">
                             <tr>
-                                <td colspan="8" class="text-center empty-state">
+                                <td colspan="9" class="text-center empty-state">
                                     Carregando famílias compradas pelo cliente...
                                 </td>
                             </tr>
@@ -989,14 +994,107 @@
         </div>
     </div>
 
+    <!-- Modal Detalhe das Ordens de Serviço da Família Comprada -->
+    <div id="familyOrdersModal" class="modal-overlay sub-modal hidden">
+        <div class="modal-container" style="max-width: 96vw; width: 96vw; height: 93vh; max-height: 93vh;">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <h2 id="modalFamilyOrdersTitle">📋 Ordens de Serviço: ---</h2>
+                    <span id="modalFamilyOrdersSubtitle" class="modal-subtitle">OSs emitidas para o cliente com esta família de produtos</span>
+                </div>
+                <button id="btnCloseFamilyOrdersModal" class="btn-close">&times;</button>
+            </div>
+
+            <div class="modal-body" style="padding: 1rem 1.5rem;">
+                <!-- Summary Stats -->
+                <div class="client-stats-bar" style="margin-bottom: 0.5rem;" id="modalFamilyOrdersStatsBar">
+                    <div class="stat-box">
+                        <span class="stat-label">Total de OSs</span>
+                        <span id="modalFamilyOrdersStatCount" class="stat-value text-blue">0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Total Faturado</span>
+                        <span id="modalFamilyOrdersStatFaturamento" class="stat-value text-green">R$ 0,00</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Volume de Peças</span>
+                        <span id="modalFamilyOrdersStatQtd" class="stat-value">0 un.</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Preço Médio / Peça</span>
+                        <span id="modalFamilyOrdersStatPrecoMedio" class="stat-value">R$ 0,00</span>
+                    </div>
+                </div>
+
+                <!-- Search and Actions inside Modal -->
+                <div class="flex-between no-print" style="margin-bottom: 0.5rem; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                    <div style="flex: 1; max-width: 480px; position: relative;">
+                        <input type="text" id="modalFamilyOrdersFilterInput" class="form-control" placeholder="🔍 Filtrar por Nº da OS, código ou descrição da lente..." style="padding-left: 0.75rem;">
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <span id="modalFamilyOrdersCountBadge" class="badge">0 itens encontrados</span>
+                        <button id="btnPrintFamilyOrders" class="btn btn-success btn-sm" style="font-weight: 600;">
+                            🖨️ Imprimir Relatório de OSs
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Orders Table -->
+                <div class="table-responsive" style="flex: 1; overflow-y: auto; max-height: calc(93vh - 280px); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+                    <table class="data-table" id="modalFamilyOrdersTable">
+                        <thead style="position: sticky; top: 0; z-index: 10;">
+                            <tr>
+                                <th style="width: 110px;">Nº da OS</th>
+                                <th style="width: 110px;" class="text-center">Data Emissão</th>
+                                <th style="width: 100px;">Cód. Item</th>
+                                <th>Descrição da Lente / Item</th>
+                                <th class="text-right" style="width: 90px;">Qtd</th>
+                                <th class="text-right" style="width: 120px;">Valor Unit. (R$)</th>
+                                <th class="text-right" style="width: 130px;">Total (R$)</th>
+                                <th style="width: 220px;">Operação Fiscal (CFOP)</th>
+                                <th class="text-center no-print" style="width: 110px;">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modalFamilyOrdersTableBody">
+                            <tr>
+                                <td colspan="9" class="text-center empty-state">
+                                    Carregando Ordens de Serviço...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="modal-footer flex-between">
+                <span style="font-size: 0.85rem; color: var(--text-secondary);">
+                    💡 Clique em <strong>Abrir OS</strong> para visualizar e editar os dados da Ordem de Serviço selecionada.
+                </span>
+                <button id="btnCancelFamilyOrdersModal" class="btn btn-tertiary">
+                    Voltar para Famílias
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Print Template for Client Purchased Items -->
     <div id="printClientItemsContainer" class="print-only">
         <!-- Rendered dynamically upon clicking print items -->
     </div>
 
+    <!-- Print Template for Family Orders -->
+    <div id="printFamilyOrdersContainer" class="print-only">
+        <!-- Rendered dynamically upon clicking print family orders -->
+    </div>
+
+    <!-- Print Template for Clientes que Compraram (Relatório Profissional da Pesquisa) -->
+    <div id="printClientesFamiliaContainer" class="print-only">
+        <!-- Rendered dynamically upon clicking print clientes report -->
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.5.2"></script>
+    <script src="app.js?v=1.6.2"></script>
 </body>
 </html>

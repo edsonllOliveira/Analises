@@ -788,8 +788,11 @@ select:focus,
         padding: 0 !important;
     }
 
-    .print-only {
-        display: block !important;
+    /* Hide executive print containers by default in print unless their specific body class is active */
+    #printClientItemsContainer,
+    #printFamilyOrdersContainer,
+    #printClientesFamiliaContainer {
+        display: none !important;
     }
 
     .print-header {
@@ -836,9 +839,22 @@ select:focus,
         font-size: 8pt !important;
     }
 
+    /* Ocultação estrita de telas e outros relatórios quando imprimindo */
     body.printing-client-items .main-content,
     body.printing-client-items .modal-overlay,
-    body.printing-client-items .app-header {
+    body.printing-client-items .app-header,
+    body.printing-client-items #printClientesFamiliaContainer,
+    body.printing-client-items #printFamilyOrdersContainer,
+    body.printing-family-orders .main-content,
+    body.printing-family-orders .modal-overlay,
+    body.printing-family-orders .app-header,
+    body.printing-family-orders #printClientesFamiliaContainer,
+    body.printing-family-orders #printClientItemsContainer,
+    body.printing-clientes-familia .main-content,
+    body.printing-clientes-familia .modal-overlay,
+    body.printing-clientes-familia .app-header,
+    body.printing-clientes-familia #printClientItemsContainer,
+    body.printing-clientes-familia #printFamilyOrdersContainer {
         display: none !important;
     }
 
@@ -850,9 +866,29 @@ select:focus,
         margin: 0 !important;
         padding: 0 !important;
     }
+
+    body.printing-family-orders #printFamilyOrdersContainer {
+        display: block !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body.printing-clientes-familia #printClientesFamiliaContainer {
+        display: block !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 }
 
-#printClientItemsContainer {
+#printClientItemsContainer,
+#printFamilyOrdersContainer,
+#printClientesFamiliaContainer {
     display: none;
 }
 
@@ -1247,4 +1283,17 @@ select:focus,
     background: var(--primary, #3b82f6);
     color: #ffffff;
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+}
+
+/* Modal Stacking / Layering */
+#clientFamilyItemsModal {
+    z-index: 1000;
+}
+
+#familyOrdersModal {
+    z-index: 1100;
+}
+
+#editModal {
+    z-index: 1200;
 }

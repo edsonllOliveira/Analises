@@ -271,16 +271,16 @@ def autocomplete_clientes(
         params = []
         
         if q_clean.isdigit():
-            where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR UPPER(p.NOME) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ? OR p.CNPJ LIKE ? OR p.CPF LIKE ?)")
+            where_clauses.append("(UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ? OR p.CNPJ LIKE ? OR p.CPF LIKE ?)")
             param_str = f"%{q_clean}%"
             params.extend([param_str, param_str, int(q_clean), int(q_clean), param_str, param_str])
         else:
-            where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR UPPER(p.NOME) LIKE UPPER(?) OR p.CNPJ LIKE ? OR p.CPF LIKE ?)")
+            where_clauses.append("(UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR p.CNPJ LIKE ? OR p.CPF LIKE ?)")
             param_str = f"%{q_clean}%"
             params.extend([param_str, param_str, param_str, param_str])
             
         sql += " WHERE " + " AND ".join(where_clauses)
-        sql += " ORDER BY COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), p.NOME)"
+        sql += " ORDER BY COALESCE(NULLIF(TRIM(p.NOME), ''), p.RAZAOSOCIAL)"
         
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
@@ -295,7 +295,7 @@ def autocomplete_clientes(
             cpf = r[4].strip() if r[4] else ""
             identificador = r[5] if (len(r) > 5 and r[5] is not None) else cod
             
-            display_name = razao if razao else (nome if nome else f"Cliente {cod}")
+            display_name = nome if nome else (razao if razao else f"Cliente {cod}")
             doc = cnpj if cnpj else (cpf if cpf else "")
             
             result.append({
@@ -379,11 +379,11 @@ def list_os(
         if cliente is not None and isinstance(cliente, str) and cliente.strip():
             client_clean = cliente.strip()
             if client_clean.isdigit():
-                where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR UPPER(p.NOME) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ?)")
+                where_clauses.append("(UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ?)")
                 c_param = f"%{client_clean}%"
                 params.extend([c_param, c_param, int(client_clean), int(client_clean)])
             else:
-                where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR UPPER(p.NOME) LIKE UPPER(?))")
+                where_clauses.append("(UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))")
                 c_param = f"%{client_clean}%"
                 params.extend([c_param, c_param])
 
@@ -410,7 +410,7 @@ def list_os(
         result = []
         for r in rows:
             identificador = r[14] if (len(r) > 14 and r[14] is not None) else r[3]
-            nome_clean = (r[5] or r[4] or '').strip() if (r[5] or r[4]) else f"Cliente {r[3]}"
+            nome_clean = (r[4] or r[5] or '').strip() if (r[4] or r[5]) else f"Cliente {r[3]}"
             display_cliente = f"[{identificador}] {nome_clean}" if identificador else nome_clean
 
             result.append({
@@ -444,7 +444,7 @@ def get_os_detail(cod_os: int, cod_empresa: int = 1):
         cur.execute("""
             SELECT 
                 os.COD_ORDEMSERVICO, os.COD_EMPRESA, os.NUMEROORDEMSERVICO,
-                t.COD_PESSOA, p.NOME AS CLIENTE_NOME,
+                t.COD_PESSOA, COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || t.COD_PESSOA) AS CLIENTE_NOME,
                 t.COD_NATUREZAOPERACAO, nat.DESCRICAO AS NATUREZA_DESCRICAO,
                 t.TOTAL, t.TOTALPRODUTOS, t.TOTALSERVICOS, t.TOTALICMS,
                 s.VALORDESCONTO, t.DATAEMISSAO,
@@ -744,8 +744,8 @@ def get_clientes_report(
         sql = """
             SELECT 
                 p.COD_PESSOA,
-                COALESCE(p.RAZAOSOCIAL, p.NOME, '') AS RAZAOSOCIAL,
-                COALESCE(p.NOME, '') AS NOMEFANTASIA,
+                COALESCE(p.NOME, p.RAZAOSOCIAL, '') AS NOME,
+                COALESCE(p.RAZAOSOCIAL, '') AS RAZAOSOCIAL,
                 COALESCE(p.CNPJ, p.CPF, '') AS DOCUMENTO,
                 COALESCE(p.IE, 'ISENTO') AS IE,
                 COALESCE(c.ENQUADRAMENTOFISCAL, 0) AS ENQUADRAMENTOFISCAL
@@ -763,15 +763,15 @@ def get_clientes_report(
         if search_str:
             s = f"%{search_str.upper()}%"
             sql += """ AND (
-                UPPER(p.RAZAOSOCIAL) LIKE ? OR 
                 UPPER(p.NOME) LIKE ? OR 
+                UPPER(p.RAZAOSOCIAL) LIKE ? OR 
                 p.CNPJ LIKE ? OR 
                 p.CPF LIKE ? OR 
                 UPPER(p.IE) LIKE ?
             )"""
             params.extend([s, s, s, s, s])
             
-        sql += " ORDER BY COALESCE(p.RAZAOSOCIAL, p.NOME)"
+        sql += " ORDER BY COALESCE(p.NOME, p.RAZAOSOCIAL)"
         
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
@@ -780,8 +780,8 @@ def get_clientes_report(
         result = []
         for r in rows:
             cod_pessoa = r[0]
-            razaosocial = r[1].strip() if r[1] else ""
-            nomefantasia = r[2].strip() if r[2] else ""
+            nome = r[1].strip() if r[1] else ""
+            razaosocial = r[2].strip() if r[2] else ""
             documento = r[3].strip() if r[3] else ""
             ie = r[4].strip() if r[4] else "ISENTO"
             enq_code = r[5]
@@ -789,8 +789,9 @@ def get_clientes_report(
             
             result.append({
                 "cod_pessoa": cod_pessoa,
+                "nome": nome,
+                "nome_fantasia": nome,
                 "razao_social": razaosocial,
-                "nome_fantasia": nomefantasia,
                 "cnpj_cpf": documento,
                 "ie": ie,
                 "enquadramento_codigo": enq_code,
@@ -1099,7 +1100,7 @@ def get_clientes_mais_compraram(
             params.append(dt_fim)
 
         if search_clean:
-            where_clauses.append("(UPPER(p.RAZAOSOCIAL) LIKE ? OR UPPER(p.NOME) LIKE ? OR p.CNPJ LIKE ? OR p.CPF LIKE ? OR CAST(p.COD_PESSOA AS VARCHAR(20)) LIKE ?)")
+            where_clauses.append("(UPPER(p.NOME) LIKE ? OR UPPER(p.RAZAOSOCIAL) LIKE ? OR p.CNPJ LIKE ? OR p.CPF LIKE ? OR CAST(p.COD_PESSOA AS VARCHAR(20)) LIKE ?)")
             s_param = f"%{search_clean}%"
             params.extend([s_param, s_param, s_param, s_param, s_param])
 
@@ -1111,7 +1112,7 @@ def get_clientes_mais_compraram(
         sql_customers = f"""
             SELECT {first_clause}
                 p.COD_PESSOA,
-                COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || p.COD_PESSOA) AS NOME_CLIENTE,
+                COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || p.COD_PESSOA) AS NOME_CLIENTE,
                 COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
                 COALESCE(p.CNPJ, p.CPF, '') AS DOCUMENTO,
                 SUM(ti.QUANTIDADE) AS QTD_TOTAL,
@@ -1123,7 +1124,7 @@ def get_clientes_mais_compraram(
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
             LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
             WHERE {where_sql}
-            GROUP BY p.COD_PESSOA, COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || p.COD_PESSOA), COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), COALESCE(p.CNPJ, p.CPF, '')
+            GROUP BY p.COD_PESSOA, COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || p.COD_PESSOA), COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), COALESCE(p.CNPJ, p.CPF, '')
             {order_sql}
         """
 
@@ -1452,7 +1453,8 @@ def get_clientes_compraram_familia(
         sql_union = f"""
             SELECT {first_clause}
                 u.COD_PESSOA,
-                COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || u.COD_PESSOA) AS NOME_CLIENTE,
+                COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || u.COD_PESSOA) AS NOME_FANTASIA,
+                COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), '') AS RAZAO_SOCIAL,
                 COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
                 COALESCE(p.CNPJ, p.CPF, '') AS DOCUMENTO,
                 SUM(u.QTD) AS QTD_TOTAL,
@@ -1461,7 +1463,11 @@ def get_clientes_compraram_familia(
             FROM ({union_sql_body}) u
             JOIN PESSOA p ON p.COD_PESSOA = u.COD_PESSOA
             WHERE (p.ATIVO = 'T' OR p.ATIVO = 'S' OR p.ATIVO IS NULL OR p.ATIVO = '1')
-            GROUP BY u.COD_PESSOA, COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), NULLIF(TRIM(p.NOME), ''), 'Cliente ' || u.COD_PESSOA), COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), COALESCE(p.CNPJ, p.CPF, '')
+            GROUP BY u.COD_PESSOA, 
+                     COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || u.COD_PESSOA), 
+                     COALESCE(NULLIF(TRIM(p.RAZAOSOCIAL), ''), ''), 
+                     COALESCE(NULLIF(TRIM(p.CIDADE), ''), 'NÃO INFORMADA'), 
+                     COALESCE(p.CNPJ, p.CPF, '')
             {order_sql}
         """
 
@@ -1476,12 +1482,13 @@ def get_clientes_compraram_familia(
 
         for idx, r in enumerate(rows, start=1):
             cod_pessoa = r[0]
-            nome = r[1].strip() if r[1] else f"Cliente {cod_pessoa}"
-            cid = r[2].strip() if r[2] else "NÃO INFORMADA"
-            doc = r[3].strip() if r[3] else ""
-            qtd = float(r[4]) if r[4] is not None else 0.0
-            val_total = float(r[5]) if r[5] is not None else 0.0
-            qtd_compras = int(r[6]) if r[6] is not None else 0
+            nome_fantasia = r[1].strip() if r[1] else f"Cliente {cod_pessoa}"
+            razao_social = r[2].strip() if r[2] else ""
+            cid = r[3].strip() if r[3] else "NÃO INFORMADA"
+            doc = r[4].strip() if r[4] else ""
+            qtd = float(r[5]) if r[5] is not None else 0.0
+            val_total = float(r[6]) if r[6] is not None else 0.0
+            qtd_compras = int(r[7]) if r[7] is not None else 0
             preco_medio = (val_total / qtd) if qtd > 0 else 0.0
 
             total_faturamento += val_total
@@ -1491,7 +1498,9 @@ def get_clientes_compraram_familia(
             items.append({
                 "ranking": idx,
                 "cod_pessoa": cod_pessoa,
-                "nome_cliente": nome,
+                "nome_fantasia": nome_fantasia,
+                "nome_cliente": nome_fantasia,
+                "razao_social": razao_social,
                 "cidade": cid,
                 "documento": doc,
                 "quantidade": qtd,
@@ -1537,7 +1546,8 @@ def get_cliente_itens_comprados(
         # 1. Informações cadastrais do cliente
         cur.execute("""
             SELECT COD_PESSOA, 
-                   COALESCE(NULLIF(TRIM(RAZAOSOCIAL), ''), NULLIF(TRIM(NOME), ''), 'Cliente ' || COD_PESSOA) AS NOME,
+                   COALESCE(NULLIF(TRIM(NOME), ''), NULLIF(TRIM(RAZAOSOCIAL), ''), 'Cliente ' || COD_PESSOA) AS NOME_FANTASIA,
+                   COALESCE(NULLIF(TRIM(RAZAOSOCIAL), ''), '') AS RAZAO_SOCIAL,
                    COALESCE(NULLIF(TRIM(CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
                    COALESCE(CNPJ, CPF, '') AS DOCUMENTO,
                    COALESCE(TELEFONECOMERCIAL1, TELEFONECELULAR, '') AS TELEFONE,
@@ -1552,11 +1562,13 @@ def get_cliente_itens_comprados(
 
         cliente_info = {
             "cod_pessoa": c_row[0],
+            "nome_fantasia": c_row[1].strip() if c_row[1] else f"Cliente {cod_pessoa}",
             "nome_cliente": c_row[1].strip() if c_row[1] else f"Cliente {cod_pessoa}",
-            "cidade": c_row[2].strip() if c_row[2] else "NÃO INFORMADA",
-            "documento": c_row[3].strip() if c_row[3] else "",
-            "telefone": c_row[4].strip() if c_row[4] else "",
-            "email": c_row[5].strip() if c_row[5] else ""
+            "razao_social": c_row[2].strip() if c_row[2] else "",
+            "cidade": c_row[3].strip() if c_row[3] else "NÃO INFORMADA",
+            "documento": c_row[4].strip() if c_row[4] else "",
+            "telefone": c_row[5].strip() if c_row[5] else "",
+            "email": c_row[6].strip() if c_row[6] else ""
         }
 
         # 2. Localizar IDs de famílias e códigos de itens que contêm o termo
@@ -1748,6 +1760,256 @@ def get_cliente_itens_comprados(
         raise
     except Exception as e:
         logger.error(f"Erro ao buscar itens comprados pelo cliente {cod_pessoa}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/clientes/{cod_pessoa}/familias/{cod_familia}/ordens-servico")
+def get_cliente_familia_ordens_servico(
+    cod_pessoa: int,
+    cod_familia: int,
+    nome_familia: Optional[str] = Query(None),
+    tipo_operacao: Optional[str] = Query(None),
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
+    limit: int = Query(1500, ge=1, le=5000)
+):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # 1. Informações cadastrais do cliente
+        cur.execute("""
+            SELECT COD_PESSOA, 
+                   COALESCE(NULLIF(TRIM(NOME), ''), NULLIF(TRIM(RAZAOSOCIAL), ''), 'Cliente ' || COD_PESSOA) AS NOME_FANTASIA,
+                   COALESCE(NULLIF(TRIM(RAZAOSOCIAL), ''), '') AS RAZAO_SOCIAL,
+                   COALESCE(NULLIF(TRIM(CIDADE), ''), 'NÃO INFORMADA') AS CIDADE,
+                   COALESCE(CNPJ, CPF, '') AS DOCUMENTO
+            FROM PESSOA
+            WHERE COD_PESSOA = ?
+        """, (cod_pessoa,))
+        c_row = cur.fetchone()
+        cliente_info = {
+            "cod_pessoa": cod_pessoa,
+            "nome_fantasia": c_row[1].strip() if c_row and c_row[1] else f"Cliente {cod_pessoa}",
+            "nome_cliente": c_row[1].strip() if c_row and c_row[1] else f"Cliente {cod_pessoa}",
+            "razao_social": c_row[2].strip() if c_row and c_row[2] else "",
+            "cidade": c_row[3].strip() if c_row and c_row[3] else "NÃO INFORMADA",
+            "documento": c_row[4].strip() if c_row and c_row[4] else ""
+        }
+
+        # 2. Filtros de Operação e Datas
+        tipos_op_clean = []
+        is_explicit_todos = False
+        if tipo_operacao and not hasattr(tipo_operacao, 'default'):
+            tp_str = str(tipo_operacao).strip()
+            if tp_str.lower() == 'todos':
+                is_explicit_todos = True
+            elif tp_str:
+                for part in tp_str.split(','):
+                    part_clean = part.strip()
+                    if part_clean.isdigit():
+                        tipos_op_clean.append(int(part_clean))
+
+        if not tipos_op_clean and not is_explicit_todos:
+            tipos_op_clean = [1, 11]
+
+        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
+        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+        limit_val = 1500
+        if limit is not None and not hasattr(limit, 'default'):
+            try:
+                limit_val = int(limit)
+            except (ValueError, TypeError):
+                limit_val = 1500
+
+        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+
+        sql = f"""
+            SELECT {first_clause}
+                t.COD_TRANSACAO,
+                t.COD_EMPRESA,
+                COALESCE(os.NUMEROORDEMSERVICO, t.COD_TRANSACAO) AS NUMERO_OS,
+                t.DATAEMISSAO,
+                ti.COD_TRANSACAOITEM,
+                ti.COD_ITEM,
+                COALESCE(NULLIF(TRIM(i.DESCRICAO), ''), ti.COD_ITEM) AS NOME_ITEM,
+                COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0) AS COD_FAMILIA,
+                COALESCE(NULLIF(TRIM(pf1.DESCRICAO), ''), NULLIF(TRIM(pf2.DESCRICAO), ''), 'Família ' || COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0)) AS NOME_FAMILIA,
+                ti.QUANTIDADE,
+                ti.VALORUNITARIO,
+                ti.TOTAL,
+                COALESCE(ti.VALORDESCONTO, 0) AS VALORDESCONTO,
+                t.COD_NATUREZAOPERACAO,
+                COALESCE(NULLIF(TRIM(nat.DESCRICAO), ''), '') AS NATUREZA_DESCRICAO,
+                nat.TIPO AS TIPO_OPERACAO
+            FROM TRANSACAO t
+            JOIN TRANSACAO_ITEM ti ON ti.COD_TRANSACAO = t.COD_TRANSACAO AND ti.COD_EMPRESA = t.COD_EMPRESA
+            LEFT JOIN ORDEMSERVICO os ON os.COD_ORDEMSERVICO = t.COD_TRANSACAO AND os.COD_EMPRESA = t.COD_EMPRESA
+            LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
+            LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
+            LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
+            LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            WHERE t.SITUACAO = 3
+              AND (ti.FATURADO IS NULL OR ti.FATURADO IN ('T', 'S'))
+              AND t.COD_PESSOA = ?
+        """
+        params = [cod_pessoa]
+
+        if cod_familia > 0:
+            sql += " AND COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0) = ?"
+            params.append(cod_familia)
+        elif cod_familia == 0 and (not nome_familia or 'sem fam' in (nome_familia or '').lower()):
+            sql += " AND COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0) = 0"
+        elif nome_familia and nome_familia.strip():
+            n_clean = nome_familia.strip().upper()
+            sql += " AND (UPPER(pf1.DESCRICAO) LIKE ? OR UPPER(pf2.DESCRICAO) LIKE ? OR UPPER(i.DESCRICAO) LIKE ? OR ti.COD_ITEM = ?)"
+            params.extend([f"%{n_clean}%", f"%{n_clean}%", f"%{n_clean}%", n_clean])
+
+        if tipos_op_clean:
+            if len(tipos_op_clean) == 1:
+                sql += " AND nat.TIPO = ?"
+                params.append(tipos_op_clean[0])
+            else:
+                ph_nat = ', '.join(['?'] * len(tipos_op_clean))
+                sql += f" AND nat.TIPO IN ({ph_nat})"
+                params.extend(tipos_op_clean)
+
+        if dt_ini:
+            sql += " AND t.DATAEMISSAO >= ?"
+            params.append(dt_ini)
+
+        if dt_fim:
+            sql += " AND t.DATAEMISSAO <= ?"
+            params.append(dt_fim)
+
+        sql += """
+            ORDER BY t.DATAEMISSAO DESC, t.COD_TRANSACAO DESC, ti.COD_TRANSACAOITEM ASC
+        """
+
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+
+        items = []
+        total_quantidade = 0.0
+        total_faturamento = 0.0
+        distinct_os = set()
+        resolved_nome_familia = nome_familia or ""
+
+        for r in rows:
+            cod_transacao = r[0]
+            cod_empresa = r[1]
+            numero_os = r[2]
+            dt_emissao = r[3].strftime('%Y-%m-%d') if r[3] else ""
+            cod_transacao_item = r[4]
+            cod_item = r[5].strip() if r[5] else ""
+            nome_item = r[6].strip() if r[6] else cod_item
+            row_cod_fam = r[7]
+            row_nome_fam = r[8].strip() if r[8] else ""
+            if not resolved_nome_familia and row_nome_fam:
+                resolved_nome_familia = row_nome_fam
+
+            qtd = float(r[9]) if r[9] is not None else 0.0
+            unit = float(r[10]) if r[10] is not None else 0.0
+            val_total = float(r[11]) if r[11] is not None else 0.0
+            desc = float(r[12]) if r[12] is not None else 0.0
+            cod_nat = r[13].strip() if r[13] else ""
+            nat_desc = r[14].strip() if r[14] else ""
+            tipo_op = r[15]
+
+            total_quantidade += qtd
+            total_faturamento += val_total
+            distinct_os.add(numero_os)
+
+            items.append({
+                "cod_transacao": cod_transacao,
+                "cod_empresa": cod_empresa,
+                "numero_os": numero_os,
+                "data_emissao": dt_emissao,
+                "cod_transacaoitem": cod_transacao_item,
+                "cod_item": cod_item,
+                "nome_item": nome_item,
+                "cod_familia": row_cod_fam,
+                "nome_familia": row_nome_fam,
+                "quantidade": qtd,
+                "valor_unitario": unit,
+                "total": val_total,
+                "valor_desconto": desc,
+                "cod_naturezaoperacao": cod_nat,
+                "natureza_descricao": nat_desc,
+                "tipo_operacao": tipo_op
+            })
+
+        preco_medio = (total_faturamento / total_quantidade) if total_quantidade > 0 else 0.0
+
+        return {
+            "cliente": cliente_info,
+            "cod_familia": cod_familia,
+            "nome_familia": resolved_nome_familia or f"Família {cod_familia}",
+            "total_itens": len(items),
+            "total_ordens_servico": len(distinct_os),
+            "total_quantidade": total_quantidade,
+            "total_faturamento": total_faturamento,
+            "ticket_medio_peca": preco_medio,
+            "items": items
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar ordens de serviço da família {cod_familia} para o cliente {cod_pessoa}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sistema/atualizar")
+def atualizar_sistema_git():
+    """
+    Executa git pull origin main para atualizar a aplicação diretamente do repositório.
+    """
+    import subprocess
+    import threading
+    import sys
+    
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        result = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            cwd=base_dir,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        output = ((result.stdout or '') + "\n" + (result.stderr or '')).strip()
+        is_updated = "Already up to date." not in output and "Já atualizado" not in output and "up to date" not in output.lower()
+
+        def restart_worker():
+            import time
+            time.sleep(1.5)
+            try:
+                subprocess.Popen([sys.executable, "run_server.py"], cwd=base_dir)
+                time.sleep(0.5)
+                os._exit(0)
+            except Exception as e:
+                logger.error(f"Erro ao reiniciar servidor pós-atualização: {e}")
+
+        if result.returncode == 0:
+            if is_updated:
+                threading.Thread(target=restart_worker, daemon=True).start()
+                msg = "Sistema atualizado com sucesso do GitHub! Reiniciando em instantes..."
+            else:
+                msg = "O sistema já está na versão mais recente do GitHub."
+                
+            return {
+                "success": True,
+                "updated": is_updated,
+                "message": msg,
+                "output": output
+            }
+        else:
+            return {
+                "success": False,
+                "updated": False,
+                "message": "Erro ao atualizar pelo Git.",
+                "output": output
+            }
+    except Exception as e:
+        logger.error(f"Erro ao executar git pull: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Serve static files

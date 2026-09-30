@@ -8,6 +8,7 @@ const dbSelect = document.getElementById('dbSelect');
 const dbStatusBadge = document.getElementById('dbStatusBadge');
 const dbStatusText = document.getElementById('dbStatusText');
 const btnRefreshStatus = document.getElementById('btnRefreshStatus');
+const btnUpdateGit = document.getElementById('btnUpdateGit');
 const searchInput = document.getElementById('searchInput');
 const limitSelect = document.getElementById('limitSelect');
 const btnSearch = document.getElementById('btnSearch');
@@ -188,6 +189,48 @@ async function checkStatus() {
         dbStatusText.textContent = 'Servidor Offline';
         showToast('Não foi possível conectar à API backend.', 'error');
     }
+}
+
+if (btnRefreshStatus) {
+    btnRefreshStatus.addEventListener('click', () => {
+        checkStatus();
+        loadDatabaseSelector();
+    });
+}
+
+if (btnUpdateGit) {
+    btnUpdateGit.addEventListener('click', async () => {
+        if (!confirm('Deseja verificar e baixar atualizações do GitHub agora?')) return;
+        
+        btnUpdateGit.disabled = true;
+        const originalHtml = btnUpdateGit.innerHTML;
+        btnUpdateGit.innerHTML = '<span>⏳</span><span>Atualizando...</span>';
+        showToast('Buscando atualizações no GitHub...', 'info');
+
+        try {
+            const res = await fetch('/api/sistema/atualizar', { method: 'POST' });
+            const data = await res.json();
+            
+            if (data.success) {
+                if (data.updated) {
+                    showToast(data.message, 'success');
+                    setTimeout(() => {
+                        showToast('Reiniciando aplicação... aguarde...', 'info');
+                        setTimeout(() => window.location.reload(), 3000);
+                    }, 1000);
+                } else {
+                    showToast(data.message, 'info');
+                }
+            } else {
+                showToast(data.message || 'Erro ao atualizar.', 'error');
+            }
+        } catch (e) {
+            showToast('Erro ao comunicar com o servidor: ' + e.message, 'error');
+        } finally {
+            btnUpdateGit.disabled = false;
+            btnUpdateGit.innerHTML = originalHtml;
+        }
+    });
 }
 
 // Load Naturezas de Operação
@@ -1034,17 +1077,18 @@ function renderClientsTable(list) {
         else if (c.enquadramento_codigo === 2) badgeClass = ''; // Outro
         else badgeClass = ''; // Nenhum
         
-        const cleanName = escapeHtml(c.razao_social).replace(/'/g, "\\'");
+        const displayName = c.nome || c.razao_social || `Cliente ${c.cod_pessoa}`;
+        const cleanName = escapeHtml(displayName).replace(/'/g, "\\'");
         
         return `
             <tr>
                 <td>
                     <a href="#" class="client-os-link" onclick="event.preventDefault(); window.filterOSByClient('${c.cod_pessoa}', '${cleanName}');" title="Clique para carregar as Ordens de Serviço (OS) deste cliente">
                         <span class="link-icon">🔍</span>
-                        <strong>${escapeHtml(c.razao_social)}</strong>
+                        <strong>${escapeHtml(displayName)}</strong>
                     </a>
                 </td>
-                <td>${escapeHtml(c.nome_fantasia || 'N/A')}</td>
+                <td>${escapeHtml(c.razao_social || 'N/A')}</td>
                 <td><code>${escapeHtml(c.cnpj_cpf || 'N/A')}</code></td>
                 <td>${escapeHtml(c.ie || 'ISENTO')}</td>
                 <td class="text-center">
@@ -2029,8 +2073,10 @@ const clientesFamiliaTableBody = document.getElementById('clientesFamiliaTableBo
 const familiaResultCountBadge = document.getElementById('familiaResultCountBadge');
 const familiaPrintDate = document.getElementById('familiaPrintDate');
 const familiaPrintFilter = document.getElementById('familiaPrintFilter');
+const printClientesFamiliaContainer = document.getElementById('printClientesFamiliaContainer');
+let currentClientesFamiliaData = null;
 
-// Modal Elements
+// Modal Elements - Famílias
 const clientFamilyItemsModal = document.getElementById('clientFamilyItemsModal');
 const btnCloseItemsModal = document.getElementById('btnCloseItemsModal');
 const btnCancelItemsModal = document.getElementById('btnCancelItemsModal');
@@ -2047,6 +2093,25 @@ const modalItemsCountBadge = document.getElementById('modalItemsCountBadge');
 const btnPrintModalItems = document.getElementById('btnPrintModalItems');
 const modalItemsTableBody = document.getElementById('modalItemsTableBody');
 const printClientItemsContainer = document.getElementById('printClientItemsContainer');
+
+// Modal Elements - Ordens de Serviço da Família
+const familyOrdersModal = document.getElementById('familyOrdersModal');
+const btnCloseFamilyOrdersModal = document.getElementById('btnCloseFamilyOrdersModal');
+const btnCancelFamilyOrdersModal = document.getElementById('btnCancelFamilyOrdersModal');
+const modalFamilyOrdersTitle = document.getElementById('modalFamilyOrdersTitle');
+const modalFamilyOrdersSubtitle = document.getElementById('modalFamilyOrdersSubtitle');
+const modalFamilyOrdersStatCount = document.getElementById('modalFamilyOrdersStatCount');
+const modalFamilyOrdersStatFaturamento = document.getElementById('modalFamilyOrdersStatFaturamento');
+const modalFamilyOrdersStatQtd = document.getElementById('modalFamilyOrdersStatQtd');
+const modalFamilyOrdersStatPrecoMedio = document.getElementById('modalFamilyOrdersStatPrecoMedio');
+const modalFamilyOrdersFilterInput = document.getElementById('modalFamilyOrdersFilterInput');
+const modalFamilyOrdersCountBadge = document.getElementById('modalFamilyOrdersCountBadge');
+const btnPrintFamilyOrders = document.getElementById('btnPrintFamilyOrders');
+const modalFamilyOrdersTableBody = document.getElementById('modalFamilyOrdersTableBody');
+const printFamilyOrdersContainer = document.getElementById('printFamilyOrdersContainer');
+
+let currentFamilyOrdersData = null;
+let currentFamilyOrdersList = [];
 
 // Multi-select Dropdown Event Handlers for Familia
 if (btnFamiliaTipoOpDropdown && dropdownFamiliaTipoOpList) {
@@ -2215,6 +2280,7 @@ async function loadClientesFamiliaReport() {
 
         const data = await res.json();
         clientesFamiliaList = data.items || [];
+        currentClientesFamiliaData = data;
 
         updateFamiliaStats(data);
         renderClientesFamiliaTable(data.items, order, data.familia_pesquisada);
@@ -2272,7 +2338,8 @@ function renderClientesFamiliaTable(items, orderMetric, familiaPesquisada) {
 
         const highlightValClass = !isByQuantity ? 'style="font-weight: 700; color: #60a5fa;"' : '';
         const highlightQtdClass = isByQuantity ? 'style="font-weight: 700; color: #34d399;"' : '';
-        const cleanName = escapeHtml(item.nome_cliente).replace(/'/g, "\\'");
+        const displayName = item.nome_fantasia || item.nome_cliente || `Cliente ${item.cod_pessoa}`;
+        const cleanName = escapeHtml(displayName).replace(/'/g, "\\'");
 
         return `
             <tr class="clickable-row" onclick="window.openClientFamilyItemsModal(${item.cod_pessoa}, '${cleanName}');" title="Clique para ver as famílias compradas por este cliente">
@@ -2283,8 +2350,9 @@ function renderClientesFamiliaTable(items, orderMetric, familiaPesquisada) {
                 <td>
                     <span class="client-family-link">
                         <span>📦</span>
-                        <strong>${escapeHtml(item.nome_cliente)}</strong>
+                        <strong>${escapeHtml(displayName)}</strong>
                     </span>
+                    ${item.razao_social && item.razao_social !== displayName ? `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 1.5rem; margin-top: 1px;">${escapeHtml(item.razao_social)}</div>` : ''}
                 </td>
                 <td><span class="badge badge-blue">${escapeHtml(item.cidade)}</span></td>
                 <td><code>${escapeHtml(item.documento || 'N/A')}</code></td>
@@ -2301,9 +2369,14 @@ function renderClientesFamiliaTable(items, orderMetric, familiaPesquisada) {
                     <span class="badge">${item.qtd_compras}</span>
                 </td>
                 <td class="text-center no-print">
-                    <button type="button" class="btn-table-action" onclick="event.stopPropagation(); window.openClientFamilyItemsModal(${item.cod_pessoa}, '${cleanName}');" title="Ver famílias compradas por este cliente">
-                        <span>📦</span> Ver Famílias
-                    </button>
+                    <div style="display: flex; gap: 4px; justify-content: center; align-items: center;">
+                        <button type="button" class="btn-table-action" onclick="event.stopPropagation(); window.openClientFamilyItemsModal(${item.cod_pessoa}, '${cleanName}');" title="Ver famílias compradas por este cliente">
+                            <span>📦</span> Ver Famílias
+                        </button>
+                        <button type="button" class="btn-table-action" onclick="event.stopPropagation(); window.printDirectClientReport(${item.cod_pessoa}, '${cleanName}');" title="Imprimir Relatório das Famílias deste Cliente" style="border-color: #059669; color: #34d399;">
+                            <span>🖨️</span> Relatório
+                        </button>
+                    </div>
                 </td>
             </tr>
         `;
@@ -2405,6 +2478,9 @@ window.openClientFamilyItemsModal = async function(codPessoa, clientName) {
         if (modalClientContactInfo && data.cliente) {
             const c = data.cliente;
             let info = `📍 ${c.cidade}`;
+            if (c.razao_social && c.razao_social !== (c.nome_fantasia || c.nome_cliente)) {
+                info += ` | Razão Social: ${c.razao_social}`;
+            }
             if (c.documento) info += ` | Doc: ${c.documento}`;
             if (c.telefone) info += ` | 📞 ${c.telefone}`;
             if (c.email) info += ` | ✉️ ${c.email}`;
@@ -2423,7 +2499,7 @@ window.openClientFamilyItemsModal = async function(codPessoa, clientName) {
         if (modalItemsTableBody) {
             modalItemsTableBody.innerHTML = `
                 <tr>
-                    <td colspan="8" class="text-center empty-state" style="color: #ef4444;">
+                    <td colspan="9" class="text-center empty-state" style="color: #ef4444;">
                         ${escapeHtml(e.message)}
                     </td>
                 </tr>
@@ -2442,7 +2518,7 @@ function renderModalItemsTable(items) {
     if (!items || items.length === 0) {
         modalItemsTableBody.innerHTML = `
             <tr>
-                <td colspan="8" class="text-center empty-state">
+                <td colspan="9" class="text-center empty-state">
                     Nenhuma família encontrada para os critérios informados.
                 </td>
             </tr>
@@ -2450,23 +2526,41 @@ function renderModalItemsTable(items) {
         return;
     }
 
-    modalItemsTableBody.innerHTML = items.map(item => `
-        <tr>
-            <td class="text-center"><code>${escapeHtml(item.cod_familia || '-')}</code></td>
-            <td><strong>${escapeHtml(item.nome_familia || 'Sem Família')}</strong></td>
-            <td class="text-right" style="font-weight: 600; color: #34d399;">
-                ${(item.quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
-            </td>
-            <td class="text-right">R$ ${formatMoney(item.preco_medio || 0)}</td>
-            <td class="text-right" style="font-weight: 700; color: #60a5fa;">R$ ${formatMoney(item.valor_total || 0)}</td>
-            <td class="text-center"><span class="badge badge-blue">${item.qtd_compras || 0}</span></td>
-            <td class="text-center">${formatDateBR(item.primeira_compra)}</td>
-            <td class="text-center">${formatDateBR(item.ultima_compra)}</td>
-        </tr>
-    `).join('');
+    const codPessoa = currentClientPurchasedData && currentClientPurchasedData.cliente ? currentClientPurchasedData.cliente.cod_pessoa : 0;
+    const clientName = currentClientPurchasedData && currentClientPurchasedData.cliente ? (currentClientPurchasedData.cliente.nome_fantasia || currentClientPurchasedData.cliente.nome_cliente || '') : '';
+    const cleanClientName = escapeHtml(clientName).replace(/'/g, "\\'");
+
+    modalItemsTableBody.innerHTML = items.map(item => {
+        const cleanFamName = escapeHtml(item.nome_familia || 'Família').replace(/'/g, "\\'");
+
+        return `
+            <tr class="clickable-row" onclick="window.openFamilyOrdersModal(${item.cod_familia || 0}, '${cleanFamName}', ${codPessoa}, '${cleanClientName}');" title="Clique para ver todas as Ordens de Serviço (OS) em que esta família foi vendida">
+                <td class="text-center"><code>${escapeHtml(item.cod_familia || '-')}</code></td>
+                <td>
+                    <span class="client-family-link">
+                        <span>👓</span>
+                        <strong>${escapeHtml(item.nome_familia || 'Sem Família')}</strong>
+                    </span>
+                </td>
+                <td class="text-right" style="font-weight: 600; color: #34d399;">
+                    ${(item.quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                </td>
+                <td class="text-right">R$ ${formatMoney(item.preco_medio || 0)}</td>
+                <td class="text-right" style="font-weight: 700; color: #60a5fa;">R$ ${formatMoney(item.valor_total || 0)}</td>
+                <td class="text-center"><span class="badge badge-blue">${item.qtd_compras || 0}</span></td>
+                <td class="text-center">${formatDateBR(item.primeira_compra)}</td>
+                <td class="text-center">${formatDateBR(item.ultima_compra)}</td>
+                <td class="text-center no-print">
+                    <button type="button" class="btn-table-action" onclick="event.stopPropagation(); window.openFamilyOrdersModal(${item.cod_familia || 0}, '${cleanFamName}', ${codPessoa}, '${cleanClientName}');" title="Ver todas as Ordens de Serviço (OS) desta família">
+                        <span>📋</span> Ver OSs
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
 }
 
-// Instant in-modal filter
+// Instant in-modal filter for Families
 if (modalItemsFilterInput) {
     modalItemsFilterInput.addEventListener('input', (e) => {
         const q = e.target.value.trim().toUpperCase();
@@ -2485,7 +2579,7 @@ if (modalItemsFilterInput) {
     });
 }
 
-// Close Modal Events
+// Close Families Modal Events
 function closeItemsModal() {
     if (clientFamilyItemsModal) clientFamilyItemsModal.classList.add('hidden');
 }
@@ -2499,31 +2593,515 @@ if (clientFamilyItemsModal) {
     });
 }
 
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && clientFamilyItemsModal && !clientFamilyItemsModal.classList.contains('hidden')) {
-        closeItemsModal();
-    }
-});
+// ==========================================
+// 📋 MODAL DE ORDENS DE SERVIÇO POR FAMÍLIA
+// ==========================================
 
-// Print Clientes Familia Report
-if (btnPrintClientesFamilia) {
-    btnPrintClientesFamilia.addEventListener('click', () => {
-        updateFamiliaPrintMeta();
-        window.print();
+window.openFamilyOrdersModal = async function(codFamilia, nomeFamilia, codPessoa, clientName) {
+    if (!familyOrdersModal) return;
+
+    familyOrdersModal.classList.remove('hidden');
+
+    const dtIni = familiaDateInicio ? familiaDateInicio.value : '';
+    const dtFim = familiaDateFim ? familiaDateFim.value : '';
+
+    if (modalFamilyOrdersTitle) {
+        modalFamilyOrdersTitle.textContent = `📋 Ordens de Serviço: ${nomeFamilia}`;
+    }
+    if (modalFamilyOrdersSubtitle) {
+        let periodStr = 'Todo o histórico';
+        if (dtIni && dtFim) periodStr = `${formatDateBR(dtIni)} até ${formatDateBR(dtFim)}`;
+        else if (dtIni) periodStr = `A partir de ${formatDateBR(dtIni)}`;
+        else if (dtFim) periodStr = `Até ${formatDateBR(dtFim)}`;
+        modalFamilyOrdersSubtitle.textContent = `Cliente: ${clientName} (Cód. ${codPessoa}) | Família: ${nomeFamilia} (ID: ${codFamilia || 'Geral'}) | Período: ${periodStr}`;
+    }
+
+    if (modalFamilyOrdersFilterInput) {
+        modalFamilyOrdersFilterInput.value = '';
+    }
+
+    if (modalFamilyOrdersTableBody) {
+        modalFamilyOrdersTableBody.innerHTML = `
+            <tr>
+                <td colspan="9" class="text-center empty-state">
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+                        <span>🔍 Buscando Ordens de Serviço desta família no banco de dados...</span>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">Isso pode levar alguns instantes dependendo do volume histórico.</span>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+
+    const selectedTipos = getSelectedFamiliaTipos();
+    let tipoOpParam = '';
+    if (selectedTipos.length === 0) {
+        tipoOpParam = '1,11';
+    } else if (selectedTipos.length === familiaTiposData.length) {
+        tipoOpParam = 'todos';
+    } else {
+        tipoOpParam = selectedTipos.join(',');
+    }
+
+    let url = `/api/clientes/${codPessoa}/familias/${codFamilia}/ordens-servico?limit=1500`;
+    if (nomeFamilia) {
+        url += `&nome_familia=${encodeURIComponent(nomeFamilia)}`;
+    }
+    if (tipoOpParam) {
+        url += `&tipo_operacao=${encodeURIComponent(tipoOpParam)}`;
+    }
+    if (dtIni) {
+        url += `&data_inicio=${encodeURIComponent(dtIni)}`;
+    }
+    if (dtFim) {
+        url += `&data_fim=${encodeURIComponent(dtFim)}`;
+    }
+
+    try {
+        const res = await fetch(url);
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Erro ao carregar Ordens de Serviço.');
+        }
+
+        const data = await res.json();
+        currentFamilyOrdersData = data;
+        currentFamilyOrdersList = data.items || [];
+
+        if (modalFamilyOrdersStatCount) modalFamilyOrdersStatCount.textContent = `${data.total_ordens_servico || 0} OSs (${data.total_itens || 0} itens)`;
+        if (modalFamilyOrdersStatFaturamento) modalFamilyOrdersStatFaturamento.textContent = `R$ ${formatMoney(data.total_faturamento || 0)}`;
+        if (modalFamilyOrdersStatQtd) modalFamilyOrdersStatQtd.textContent = `${(data.total_quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un.`;
+        if (modalFamilyOrdersStatPrecoMedio) modalFamilyOrdersStatPrecoMedio.textContent = `R$ ${formatMoney(data.ticket_medio_peca || 0)}`;
+
+        renderFamilyOrdersTable(currentFamilyOrdersList);
+    } catch (e) {
+        showToast(e.message, 'error');
+        if (modalFamilyOrdersTableBody) {
+            modalFamilyOrdersTableBody.innerHTML = `
+                <tr>
+                    <td colspan="9" class="text-center empty-state" style="color: #ef4444;">
+                        ${escapeHtml(e.message)}
+                    </td>
+                </tr>
+            `;
+        }
+    }
+};
+
+function renderFamilyOrdersTable(items) {
+    if (!modalFamilyOrdersTableBody) return;
+
+    if (modalFamilyOrdersCountBadge) {
+        modalFamilyOrdersCountBadge.textContent = `${items.length} itens listados`;
+    }
+
+    if (!items || items.length === 0) {
+        modalFamilyOrdersTableBody.innerHTML = `
+            <tr>
+                <td colspan="9" class="text-center empty-state">
+                    Nenhuma Ordem de Serviço encontrada para os critérios informados.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    modalFamilyOrdersTableBody.innerHTML = items.map(item => `
+        <tr class="clickable-row" onclick="openEditModal(${item.cod_transacao}, ${item.cod_empresa});" title="Clique para abrir e visualizar a OS #${item.numero_os}">
+            <td><strong style="color: #60a5fa;">#${escapeHtml(item.numero_os)}</strong></td>
+            <td class="text-center">${formatDateBR(item.data_emissao)}</td>
+            <td><code>${escapeHtml(item.cod_item || '-')}</code></td>
+            <td><strong>${escapeHtml(item.nome_item || '')}</strong></td>
+            <td class="text-right" style="font-weight: 600; color: #34d399;">
+                ${(item.quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+            </td>
+            <td class="text-right">R$ ${formatMoney(item.valor_unitario || 0)}</td>
+            <td class="text-right" style="font-weight: 700; color: #60a5fa;">R$ ${formatMoney(item.total || 0)}</td>
+            <td>
+                <span class="badge badge-secondary" title="${escapeHtml(item.natureza_descricao || '')}">
+                    ${escapeHtml(item.cod_naturezaoperacao || 'N/A')}
+                </span>
+                <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 4px;">${escapeHtml(item.natureza_descricao || '')}</span>
+            </td>
+            <td class="text-center no-print">
+                <button type="button" class="btn-table-action" onclick="event.stopPropagation(); openEditModal(${item.cod_transacao}, ${item.cod_empresa});" title="Abrir e editar a OS #${item.numero_os}">
+                    <span>📝</span> Abrir OS
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Instant filter inside Family Orders Modal
+if (modalFamilyOrdersFilterInput) {
+    modalFamilyOrdersFilterInput.addEventListener('input', (e) => {
+        const q = e.target.value.trim().toUpperCase();
+        if (!q) {
+            renderFamilyOrdersTable(currentFamilyOrdersList);
+            return;
+        }
+
+        const filtered = currentFamilyOrdersList.filter(item => {
+            const os = String(item.numero_os || '').toUpperCase();
+            const cod = String(item.cod_item || '').toUpperCase();
+            const desc = (item.nome_item || '').toUpperCase();
+            const nat = (item.natureza_descricao || '').toUpperCase();
+            const cfop = (item.cod_naturezaoperacao || '').toUpperCase();
+            return os.includes(q) || cod.includes(q) || desc.includes(q) || nat.includes(q) || cfop.includes(q);
+        });
+
+        renderFamilyOrdersTable(filtered);
     });
 }
 
-// Impressão Detalhada das Famílias Compradas pelo Cliente
+// Close Family Orders Modal Events
+function closeFamilyOrdersModal() {
+    if (familyOrdersModal) familyOrdersModal.classList.add('hidden');
+}
+
+if (btnCloseFamilyOrdersModal) btnCloseFamilyOrdersModal.addEventListener('click', closeFamilyOrdersModal);
+if (btnCancelFamilyOrdersModal) btnCancelFamilyOrdersModal.addEventListener('click', closeFamilyOrdersModal);
+
+if (familyOrdersModal) {
+    familyOrdersModal.addEventListener('click', (e) => {
+        if (e.target === familyOrdersModal) closeFamilyOrdersModal();
+    });
+}
+
+// Global Escape Key Listener with Hierarchy
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        if (familyOrdersModal && !familyOrdersModal.classList.contains('hidden')) {
+            closeFamilyOrdersModal();
+            e.stopPropagation();
+            return;
+        }
+        if (clientFamilyItemsModal && !clientFamilyItemsModal.classList.contains('hidden')) {
+            closeItemsModal();
+            e.stopPropagation();
+            return;
+        }
+    }
+});
+
+// Print Family Orders Report
+function printFamilyOrdersReport() {
+    if (!currentFamilyOrdersData || !currentFamilyOrdersList) {
+        showToast('Nenhum dado de OS carregado para impressão.', 'warning');
+        return;
+    }
+
+    const data = currentFamilyOrdersData;
+    const c = data.cliente || {};
+    const items = currentFamilyOrdersList;
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    const dtIni = familiaDateInicio ? familiaDateInicio.value : '';
+    const dtFim = familiaDateFim ? familiaDateFim.value : '';
+    let periodStr = 'Todo o histórico';
+    if (dtIni && dtFim) periodStr = `${formatDateBR(dtIni)} até ${formatDateBR(dtFim)}`;
+    else if (dtIni) periodStr = `A partir de ${formatDateBR(dtIni)}`;
+    else if (dtFim) periodStr = `Até ${formatDateBR(dtFim)}`;
+
+    const html = `
+        <div class="client-print-report">
+            <div class="client-print-header">
+                <div class="client-print-title">RELATÓRIO DE ORDENS DE SERVIÇO POR FAMÍLIA DE PRODUTOS</div>
+                <div class="client-print-meta-row" style="margin-top: 6px; font-size: 8.5pt; color: #374151;">
+                    <div>
+                        <strong>Cliente:</strong> ${escapeHtml(c.nome_fantasia || c.nome_cliente)} (Cód. ${c.cod_pessoa})
+                        ${c.razao_social && c.razao_social !== (c.nome_fantasia || c.nome_cliente) ? ` | <strong>Razão Social:</strong> ${escapeHtml(c.razao_social)}` : ''}
+                        | <strong>Cidade:</strong> ${escapeHtml(c.cidade)}
+                        ${c.documento ? ` | <strong>Doc:</strong> ${escapeHtml(c.documento)}` : ''}
+                    </div>
+                    <div style="margin-top: 3px;">
+                        <strong>Família de Lentes:</strong> ${escapeHtml(data.nome_familia)} (ID: ${data.cod_familia || 'Geral'}) | <strong>Período:</strong> ${periodStr} | <strong>Emissão:</strong> ${dateStr}
+                    </div>
+                </div>
+            </div>
+
+            <div class="client-print-stats" style="margin: 10px 0;">
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Total de OSs</span>
+                    <span class="client-print-stat-value" style="color: #2563eb;">${data.total_ordens_servico || 0}</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Volume de Peças</span>
+                    <span class="client-print-stat-value">${(data.total_quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un.</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Faturamento Total</span>
+                    <span class="client-print-stat-value" style="color: #059669;">R$ ${formatMoney(data.total_faturamento || 0)}</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Preço Médio / Peça</span>
+                    <span class="client-print-stat-value">R$ ${formatMoney(data.ticket_medio_peca || 0)}</span>
+                </div>
+            </div>
+
+            <table class="client-print-table">
+                <thead>
+                    <tr>
+                        <th style="width: 70px;">Nº OS</th>
+                        <th style="width: 75px;" class="text-center">Data</th>
+                        <th style="width: 70px;">Cód. Item</th>
+                        <th>Descrição da Lente / Item</th>
+                        <th class="text-right" style="width: 60px;">Qtd</th>
+                        <th class="text-right" style="width: 80px;">Valor Unit.</th>
+                        <th class="text-right" style="width: 90px;">Total (R$)</th>
+                        <th style="width: 140px;">CFOP / Operação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${items.map(item => `
+                        <tr>
+                            <td><strong>#${escapeHtml(item.numero_os)}</strong></td>
+                            <td class="text-center">${formatDateBR(item.data_emissao)}</td>
+                            <td><code>${escapeHtml(item.cod_item || '')}</code></td>
+                            <td>${escapeHtml(item.nome_item || '')}</td>
+                            <td class="text-right">${(item.quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
+                            <td class="text-right">R$ ${formatMoney(item.valor_unitario || 0)}</td>
+                            <td class="text-right" style="font-weight: bold;">R$ ${formatMoney(item.total || 0)}</td>
+                            <td>${escapeHtml(item.cod_naturezaoperacao || '')} - ${escapeHtml(item.natureza_descricao || '')}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+                <tfoot>
+                    <tr class="totals-row">
+                        <td colspan="4" style="text-align: right; font-weight: bold;">TOTAIS GERAIS:</td>
+                        <td style="text-align: right; font-weight: bold;">${(data.total_quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
+                        <td style="text-align: right;">-</td>
+                        <td style="text-align: right; font-weight: bold; color: #2563eb;">R$ ${formatMoney(data.total_faturamento || 0)}</td>
+                        <td style="font-weight: bold;">${data.total_ordens_servico || 0} OSs distintas</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <div class="client-print-footer">
+                Relatório gerado por Aspheric Analytics • Base de Dados: Firebird (${document.title || 'Dilab'})
+            </div>
+        </div>
+    `;
+
+    if (printFamilyOrdersContainer) {
+        printFamilyOrdersContainer.innerHTML = html;
+    }
+
+    document.body.classList.add('printing-family-orders');
+
+    const cleanup = () => {
+        document.body.classList.remove('printing-family-orders');
+        window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setTimeout(() => {
+        window.print();
+        setTimeout(cleanup, 2500);
+    }, 150);
+}
+
+if (btnPrintFamilyOrders) {
+    btnPrintFamilyOrders.addEventListener('click', printFamilyOrdersReport);
+}
+
+// ============================================================
+// 🖨️ RELATÓRIO PROFISSIONAL: CLIENTES QUE COMPRARAM
+// ============================================================
+function printClientesFamiliaReport() {
+    if (!clientesFamiliaList || clientesFamiliaList.length === 0) {
+        showToast('Nenhum cliente listado na pesquisa atual para emitir o relatório.', 'warning');
+        return;
+    }
+
+    const data = currentClientesFamiliaData || {};
+    const items = clientesFamiliaList;
+    const now = new Date();
+    const emissaoStr = now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    const rawSearch = familiaSearchInput ? familiaSearchInput.value.trim() : '';
+    const dtIni = familiaDateInicio ? familiaDateInicio.value : '';
+    const dtFim = familiaDateFim ? familiaDateFim.value : '';
+    const orderText = familiaOrderSelect ? familiaOrderSelect.options[familiaOrderSelect.selectedIndex].text : 'Maior Valor Comprado';
+    const tipoOpText = lblFamiliaTipoOpSelected ? lblFamiliaTipoOpSelected.textContent : 'Vendas';
+
+    let periodText = 'Histórico Completo';
+    if (dtIni && dtFim) periodText = `${formatDateBR(dtIni)} até ${formatDateBR(dtFim)}`;
+    else if (dtIni) periodText = `A partir de ${formatDateBR(dtIni)}`;
+    else if (dtFim) periodText = `Até ${formatDateBR(dtFim)}`;
+
+    const totalFat = data.total_faturamento || items.reduce((acc, it) => acc + (it.valor_total || 0), 0);
+    const totalQtd = data.total_quantidade || items.reduce((acc, it) => acc + (it.quantidade || 0), 0);
+    const totalCompras = data.total_compras || items.reduce((acc, it) => acc + (it.qtd_compras || 0), 0);
+    const ticketMedio = items.length > 0 ? (totalFat / items.length) : 0;
+    const precoMedioGlobal = totalQtd > 0 ? (totalFat / totalQtd) : 0;
+
+    let tableRowsHtml = items.map((it, idx) => {
+        const rank = it.ranking || (idx + 1);
+        const partFat = totalFat > 0 ? ((it.valor_total / totalFat) * 100).toFixed(1) : '0.0';
+        const nomeFantasia = it.nome_fantasia || it.nome_cliente || `Cliente ${it.cod_pessoa}`;
+        const razaoSocial = it.razao_social || '';
+        const hasDiffRazao = razaoSocial && razaoSocial !== nomeFantasia;
+
+        return `
+            <tr>
+                <td style="text-align: center; font-weight: bold;">${rank}º</td>
+                <td style="text-align: center;"><code>${escapeHtml(it.cod_pessoa)}</code></td>
+                <td>
+                    <div style="font-weight: bold; color: #1e3a8a;">${escapeHtml(nomeFantasia)}</div>
+                    ${hasDiffRazao ? `<div style="font-size: 7.5pt; color: #64748b;">${escapeHtml(razaoSocial)}</div>` : ''}
+                </td>
+                <td>${escapeHtml(it.cidade || 'NÃO INFORMADA')}</td>
+                <td style="font-size: 7.5pt;">${escapeHtml(it.documento || 'ISENTO')}</td>
+                <td style="text-align: right; font-weight: 600;">${(it.quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
+                <td style="text-align: right;">R$ ${formatMoney(it.preco_medio_item || 0)}</td>
+                <td style="text-align: right; font-weight: bold; color: #1e3a8a;">R$ ${formatMoney(it.valor_total || 0)}</td>
+                <td style="text-align: center;">${it.qtd_compras || 0}</td>
+                <td style="text-align: right; font-size: 7.5pt; color: #059669; font-weight: bold;">${partFat}%</td>
+            </tr>
+        `;
+    }).join('');
+
+    const html = `
+        <div class="client-print-report">
+            <div class="client-print-header">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <h1 class="client-print-title">RELATÓRIO DE CLIENTES QUE COMPRARAM POR PRODUTO / FAMÍLIA</h1>
+                        <div style="font-size: 10pt; font-weight: bold; color: #1e3a8a; margin-top: 2px;">
+                            Termo de Pesquisa: "${escapeHtml(rawSearch || 'Todas as Famílias')}"
+                        </div>
+                    </div>
+                    <div style="text-align: right; font-size: 8.5pt; color: #4b5563;">
+                        <div>Emissão: <strong>${emissaoStr}</strong></div>
+                        <div>Total Clientes: <strong>${items.length}</strong></div>
+                    </div>
+                </div>
+
+                <div class="client-print-card" style="margin-top: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-size: 8.5pt;">
+                        <div><strong>Período:</strong> ${periodText}</div>
+                        <div><strong>Operações:</strong> ${escapeHtml(tipoOpText)}</div>
+                        <div><strong>Ordenação:</strong> ${escapeHtml(orderText)}</div>
+                        <div><strong>Base:</strong> Firebird (${document.title || 'Dilab'})</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats KPI Cards -->
+            <div class="client-print-stats" style="grid-template-columns: repeat(5, 1fr); margin: 10px 0;">
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Faturamento Total</span>
+                    <span class="client-print-stat-value" style="color: #059669;">R$ ${formatMoney(totalFat)}</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Volume de Peças</span>
+                    <span class="client-print-stat-value" style="color: #2563eb;">${(totalQtd).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un.</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Clientes Distintos</span>
+                    <span class="client-print-stat-value">${items.length}</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Total Compras / Transações</span>
+                    <span class="client-print-stat-value">${totalCompras}</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Ticket Médio / Cliente</span>
+                    <span class="client-print-stat-value">R$ ${formatMoney(ticketMedio)}</span>
+                </div>
+            </div>
+
+            <!-- Clientes Table -->
+            <table class="client-print-table">
+                <thead>
+                    <tr>
+                        <th style="width: 38px; text-align: center;">Rank</th>
+                        <th style="width: 50px; text-align: center;">Cód.</th>
+                        <th>Nome Fantasia / Razão Social</th>
+                        <th style="width: 125px;">Cidade</th>
+                        <th style="width: 105px;">CNPJ / CPF</th>
+                        <th style="width: 75px; text-align: right;">Qtd Comprada</th>
+                        <th style="width: 75px; text-align: right;">Preço Médio</th>
+                        <th style="width: 95px; text-align: right;">Total Comprado</th>
+                        <th style="width: 60px; text-align: center;">Nº Compras</th>
+                        <th style="width: 55px; text-align: right;">% Part.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRowsHtml}
+                </tbody>
+                <tfoot>
+                    <tr class="totals-row">
+                        <td colspan="5" style="text-align: right; font-weight: bold;">TOTAIS CONSOLIDADOS:</td>
+                        <td style="text-align: right; font-weight: bold; color: #059669;">
+                            ${(totalQtd).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                        </td>
+                        <td style="text-align: right; font-weight: bold;">
+                            R$ ${formatMoney(precoMedioGlobal)}
+                        </td>
+                        <td style="text-align: right; font-weight: bold; color: #1e3a8a;">
+                            R$ ${formatMoney(totalFat)}
+                        </td>
+                        <td style="text-align: center; font-weight: bold;">${totalCompras}</td>
+                        <td style="text-align: right; font-weight: bold; color: #059669;">100.0%</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <div class="client-print-footer" style="margin-top: 12px; font-size: 8pt; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 6px; display: flex; justify-content: space-between;">
+                <span>Aspheric Analytics • Relatório Gerencial de Clientes por Família</span>
+                <span>${items.length} clientes listados</span>
+            </div>
+        </div>
+    `;
+
+    // Isolamento absoluto: esvaziar os outros containers de impressão
+    if (printClientItemsContainer) printClientItemsContainer.innerHTML = '';
+    if (printFamilyOrdersContainer) printFamilyOrdersContainer.innerHTML = '';
+
+    if (printClientesFamiliaContainer) {
+        printClientesFamiliaContainer.innerHTML = html;
+    }
+
+    document.body.classList.remove('printing-client-items', 'printing-family-orders');
+    document.body.classList.add('printing-clientes-familia');
+
+    const cleanup = () => {
+        document.body.classList.remove('printing-clientes-familia');
+        if (printClientesFamiliaContainer) printClientesFamiliaContainer.innerHTML = '';
+        window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setTimeout(() => {
+        window.print();
+        setTimeout(cleanup, 2500);
+    }, 150);
+}
+
+if (btnPrintClientesFamilia) {
+    btnPrintClientesFamilia.addEventListener('click', printClientesFamiliaReport);
+}
+
+// =========================================================================
+// 🖨️ IMPRESSÃO DO RELATÓRIO DE FAMÍLIAS DO CLIENTE (EXCLUSIVO PARA O CLIENTE)
+// =========================================================================
 function printClientPurchasedItemsReport() {
     if (!printClientItemsContainer) {
         window.print();
         return;
     }
 
+    // Isolamento absoluto: esvaziar os outros containers para JAMAIS misturar outros clientes
+    if (printClientesFamiliaContainer) printClientesFamiliaContainer.innerHTML = '';
+    if (printFamilyOrdersContainer) printFamilyOrdersContainer.innerHTML = '';
+
     const data = currentClientPurchasedData || {};
     const client = data.cliente || {};
     const items = currentModalItemsList || [];
-    const searchDescription = (familiaSearchInput && familiaSearchInput.value.trim()) || data.termo_pesquisado || 'Todas';
+    const searchDescription = (familiaSearchInput && familiaSearchInput.value.trim()) || data.termo_pesquisado || 'Todas as Famílias';
     const dtIni = familiaDateInicio ? familiaDateInicio.value : '';
     const dtFim = familiaDateFim ? familiaDateFim.value : '';
     let periodText = 'Histórico Completo';
@@ -2531,31 +3109,43 @@ function printClientPurchasedItemsReport() {
     else if (dtIni) periodText = `A partir de ${formatDateBR(dtIni)}`;
     else if (dtFim) periodText = `Até ${formatDateBR(dtFim)}`;
 
+    const displayName = client.nome_fantasia || client.nome_cliente || `Cliente ${client.cod_pessoa || ''}`;
+    const razaoSocial = client.razao_social || '';
+
     const now = new Date();
     const emissaoStr = now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    let tableRowsHtml = items.map((it) => `
-        <tr>
-            <td style="text-align: center;"><code>${escapeHtml(it.cod_familia || '-')}</code></td>
-            <td><strong>${escapeHtml(it.nome_familia || 'Sem Família')}</strong></td>
-            <td style="text-align: right; font-weight: 600;">${(it.quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
-            <td style="text-align: right;">R$ ${formatMoney(it.preco_medio || 0)}</td>
-            <td style="text-align: right; font-weight: 700;">R$ ${formatMoney(it.valor_total || 0)}</td>
-            <td style="text-align: center;">${it.qtd_compras || 0}</td>
-            <td style="text-align: center;">${formatDateBR(it.primeira_compra)}</td>
-            <td style="text-align: center;">${formatDateBR(it.ultima_compra)}</td>
-        </tr>
-    `).join('');
+    const totalFat = data.total_faturamento || 0;
+
+    let tableRowsHtml = items.map((it, idx) => {
+        const part = totalFat > 0 ? (((it.valor_total || 0) / totalFat) * 100).toFixed(1) + '%' : '0.0%';
+        return `
+            <tr>
+                <td style="text-align: center; color: #64748b;">${idx + 1}</td>
+                <td style="text-align: center;"><code>${escapeHtml(it.cod_familia || '-')}</code></td>
+                <td><strong>${escapeHtml(it.nome_familia || 'Sem Família')}</strong></td>
+                <td style="text-align: right; font-weight: 600; color: #2563eb;">${(it.quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
+                <td style="text-align: right; color: #059669; font-weight: 600;">${part}</td>
+                <td style="text-align: right;">R$ ${formatMoney(it.preco_medio || 0)}</td>
+                <td style="text-align: right; font-weight: 700; color: #1e3a8a;">R$ ${formatMoney(it.valor_total || 0)}</td>
+                <td style="text-align: center;">${it.qtd_compras || 0}</td>
+                <td style="text-align: center;">${formatDateBR(it.primeira_compra)}</td>
+                <td style="text-align: center;">${formatDateBR(it.ultima_compra)}</td>
+            </tr>
+        `;
+    }).join('');
 
     printClientItemsContainer.innerHTML = `
         <div class="client-print-report">
             <div class="client-print-header">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
-                        <h1 class="client-print-title">Relatório de Famílias Compradas pelo Cliente</h1>
+                        <div style="font-size: 8pt; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px;">Aspheric Analytics • Relatório de Compras por Cliente</div>
+                        <h1 class="client-print-title" style="margin-top: 2px;">Famílias Compradas pelo Cliente</h1>
                         <div style="font-size: 11pt; font-weight: bold; color: #1e3a8a; margin-top: 2px;">
-                            Cliente: [${escapeHtml(client.cod_pessoa || '')}] ${escapeHtml(client.nome_cliente || '')}
+                            ${escapeHtml(displayName)} <span style="font-size: 9pt; font-weight: normal; color: #475569;">(Cód. ${escapeHtml(client.cod_pessoa || '')})</span>
                         </div>
+                        ${razaoSocial && razaoSocial !== displayName ? `<div style="font-size: 8.5pt; color: #475569; font-style: italic;">Razão Social: ${escapeHtml(razaoSocial)}</div>` : ''}
                     </div>
                     <div style="text-align: right; font-size: 8.5pt; color: #4b5563;">
                         <div>Emissão: <strong>${emissaoStr}</strong></div>
@@ -2564,10 +3154,10 @@ function printClientPurchasedItemsReport() {
                 </div>
                 <div class="client-print-card" style="margin-top: 8px;">
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 8.5pt;">
-                        <div><strong>Cidade:</strong> ${escapeHtml(client.cidade || 'Não informada')}</div>
-                        <div><strong>CNPJ/CPF:</strong> ${escapeHtml(client.documento || 'Não informado')}</div>
+                        <div><strong>Cidade / UF:</strong> ${escapeHtml(client.cidade || 'Não informada')}</div>
+                        <div><strong>CNPJ / CPF:</strong> ${escapeHtml(client.documento || 'Não informado')}</div>
                         <div><strong>Telefone:</strong> ${escapeHtml(client.telefone || 'Não informado')}</div>
-                        <div><strong>Filtro / Descrição:</strong> "${escapeHtml(searchDescription)}"</div>
+                        <div><strong>Filtro de Família:</strong> "${escapeHtml(searchDescription)}"</div>
                         <div><strong>Período:</strong> ${periodText}</div>
                         <div><strong>E-mail:</strong> ${escapeHtml(client.email || 'Não informado')}</div>
                     </div>
@@ -2602,27 +3192,32 @@ function printClientPurchasedItemsReport() {
             <table class="client-print-table">
                 <thead>
                     <tr>
-                        <th style="width: 70px; text-align: center;">Cód.</th>
+                        <th style="width: 35px; text-align: center;">#</th>
+                        <th style="width: 65px; text-align: center;">Cód.</th>
                         <th>Descrição da Família de Produtos</th>
-                        <th style="width: 80px; text-align: right;">Qtd</th>
-                        <th style="width: 90px; text-align: right;">Preço Médio</th>
-                        <th style="width: 110px; text-align: right;">Total (R$)</th>
-                        <th style="width: 70px; text-align: center;">Nº Compras</th>
-                        <th style="width: 85px; text-align: center;">1ª Compra</th>
-                        <th style="width: 85px; text-align: center;">Última Compra</th>
+                        <th style="width: 75px; text-align: right;">Qtd</th>
+                        <th style="width: 60px; text-align: right;">% Part.</th>
+                        <th style="width: 85px; text-align: right;">Preço Médio</th>
+                        <th style="width: 105px; text-align: right;">Total Comprado (R$)</th>
+                        <th style="width: 65px; text-align: center;">Compras</th>
+                        <th style="width: 80px; text-align: center;">1ª Compra</th>
+                        <th style="width: 80px; text-align: center;">Última Compra</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${tableRowsHtml}
+                    ${tableRowsHtml || '<tr><td colspan="10" style="text-align:center; padding: 15px;">Nenhuma família encontrada para este cliente no período selecionado.</td></tr>'}
                 </tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="2" style="text-align: right; font-weight: bold;">TOTAIS GERAIS:</td>
-                        <td style="text-align: right; font-weight: bold; color: #059669;">
+                        <td colspan="3" style="text-align: right; font-weight: bold;">TOTAIS CONSOLIDADOS DO CLIENTE:</td>
+                        <td style="text-align: right; font-weight: bold; color: #2563eb;">
                             ${(data.total_quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
                         </td>
-                        <td></td>
-                        <td style="text-align: right; font-weight: bold; color: #2563eb;">
+                        <td style="text-align: right; font-weight: bold; color: #059669;">100.0%</td>
+                        <td style="text-align: right; font-weight: bold;">
+                            R$ ${formatMoney(data.ticket_medio_peca || 0)}
+                        </td>
+                        <td style="text-align: right; font-weight: bold; color: #059669;">
                             R$ ${formatMoney(data.total_faturamento || 0)}
                         </td>
                         <td style="text-align: center; font-weight: bold;">${data.total_transacoes || 0}</td>
@@ -2630,13 +3225,20 @@ function printClientPurchasedItemsReport() {
                     </tr>
                 </tfoot>
             </table>
+
+            <div class="client-print-footer" style="margin-top: 12px; font-size: 8pt; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 6px; display: flex; justify-content: space-between;">
+                <span>Aspheric Analytics • Relatório emitido especificamente para o cliente ${escapeHtml(displayName)}</span>
+                <span>${items.length} famílias adquiridas</span>
+            </div>
         </div>
     `;
 
+    document.body.classList.remove('printing-clientes-familia', 'printing-family-orders');
     document.body.classList.add('printing-client-items');
 
     const cleanup = () => {
         document.body.classList.remove('printing-client-items');
+        if (printClientItemsContainer) printClientItemsContainer.innerHTML = '';
         window.removeEventListener('afterprint', cleanup);
     };
     window.addEventListener('afterprint', cleanup);
@@ -2649,6 +3251,205 @@ function printClientPurchasedItemsReport() {
 
 if (btnPrintModalItems) {
     btnPrintModalItems.addEventListener('click', printClientPurchasedItemsReport);
+}
+
+// Impressão direta do relatório de famílias a partir do botão na linha da tabela
+window.printDirectClientReport = async function(codPessoa, clientName) {
+    if (currentClientPurchasedData && currentClientPurchasedData.cliente && currentClientPurchasedData.cliente.cod_pessoa === codPessoa) {
+        printClientPurchasedItemsReport();
+        return;
+    }
+
+    showToast(`Carregando relatório de ${clientName}...`, 'info');
+    const rawFamilia = familiaSearchInput ? familiaSearchInput.value.trim() : '';
+    const dtIni = familiaDateInicio ? familiaDateInicio.value : '';
+    const dtFim = familiaDateFim ? familiaDateFim.value : '';
+
+    const selectedTipos = getSelectedFamiliaTipos();
+    let tipoOpParam = '';
+    if (selectedTipos.length === 0) {
+        tipoOpParam = '1,11';
+    } else if (selectedTipos.length === familiaTiposData.length) {
+        tipoOpParam = 'todos';
+    } else {
+        tipoOpParam = selectedTipos.join(',');
+    }
+
+    let url = `/api/clientes/${codPessoa}/itens-comprados?limit=1500`;
+    if (rawFamilia) url += `&search=${encodeURIComponent(rawFamilia)}`;
+    if (tipoOpParam) url += `&tipo_operacao=${encodeURIComponent(tipoOpParam)}`;
+    if (dtIni) url += `&data_inicio=${encodeURIComponent(dtIni)}`;
+    if (dtFim) url += `&data_fim=${encodeURIComponent(dtFim)}`;
+
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Erro ao carregar dados do cliente.');
+        const data = await res.json();
+        currentClientPurchasedData = data;
+        currentModalItemsList = data.items || [];
+        printClientPurchasedItemsReport();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+};
+
+// =========================================================================
+// 🖨️ IMPRESSÃO DO RELATÓRIO DE ORDENS DE SERVIÇO DA FAMÍLIA PARA O CLIENTE
+// =========================================================================
+function printFamilyOrdersReport() {
+    if (!printFamilyOrdersContainer) {
+        window.print();
+        return;
+    }
+
+    // Isolamento absoluto: esvaziar os outros containers de impressão
+    if (printClientesFamiliaContainer) printClientesFamiliaContainer.innerHTML = '';
+    if (printClientItemsContainer) printClientItemsContainer.innerHTML = '';
+
+    const data = currentFamilyOrdersData || {};
+    const client = (currentClientPurchasedData && currentClientPurchasedData.cliente) || data.cliente || {};
+    const items = currentFamilyOrdersList || [];
+    const codFamilia = (items.length > 0 && items[0].cod_familia) || 0;
+    const nomeFamilia = (data.nome_familia) || (items.length > 0 && items[0].nome_familia) || 'Família de Produtos';
+    const dtIni = familiaDateInicio ? familiaDateInicio.value : '';
+    const dtFim = familiaDateFim ? familiaDateFim.value : '';
+    let periodText = 'Histórico Completo';
+    if (dtIni && dtFim) periodText = `${formatDateBR(dtIni)} até ${formatDateBR(dtFim)}`;
+    else if (dtIni) periodText = `A partir de ${formatDateBR(dtIni)}`;
+    else if (dtFim) periodText = `Até ${formatDateBR(dtFim)}`;
+
+    const displayName = client.nome_fantasia || client.nome_cliente || `Cliente ${client.cod_pessoa || ''}`;
+    const razaoSocial = client.razao_social || '';
+
+    const now = new Date();
+    const emissaoStr = now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    let tableRowsHtml = items.map((it) => `
+        <tr>
+            <td style="text-align: center;">${formatDateBR(it.data_emissao)}</td>
+            <td style="text-align: center; font-weight: bold;">
+                <span class="badge" style="border: 1px solid #1e3a8a; color: #1e3a8a; font-weight: bold;">${escapeHtml(it.numero_os || it.cod_transacao || '-')}</span>
+            </td>
+            <td style="text-align: center;"><code>${escapeHtml(it.cod_item || '-')}</code></td>
+            <td><strong>${escapeHtml(it.nome_item || '-')}</strong></td>
+            <td style="text-align: right; font-weight: 600; color: #2563eb;">${(it.quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
+            <td style="text-align: right;">R$ ${formatMoney(it.valor_unitario || 0)}</td>
+            <td style="text-align: right; color: ${it.valor_desconto > 0 ? '#b91c1c' : '#64748b'};">
+                ${it.valor_desconto > 0 ? `R$ ${formatMoney(it.valor_desconto)}` : '-'}
+            </td>
+            <td style="text-align: right; font-weight: 700; color: #047857;">R$ ${formatMoney(it.total || 0)}</td>
+            <td style="font-size: 7.5pt; color: #334155;">${escapeHtml(it.natureza_descricao || ('CFOP ' + (it.cod_natureza_operacao || '')))}</td>
+        </tr>
+    `).join('');
+
+    printFamilyOrdersContainer.innerHTML = `
+        <div class="client-print-report">
+            <div class="client-print-header">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <div style="font-size: 8pt; font-weight: 700; color: #2563eb; text-transform: uppercase; letter-spacing: 0.5px;">Aspheric Analytics • Relatório de Ordens de Serviço</div>
+                        <h1 class="client-print-title" style="margin-top: 2px;">Ordens de Serviço por Família / Produto</h1>
+                        <div style="font-size: 11pt; font-weight: bold; color: #1e3a8a; margin-top: 2px;">
+                            Cliente: ${escapeHtml(displayName)} <span style="font-size: 9pt; font-weight: normal; color: #475569;">(Cód. ${escapeHtml(client.cod_pessoa || '')})</span>
+                        </div>
+                        ${razaoSocial && razaoSocial !== displayName ? `<div style="font-size: 8.5pt; color: #475569; font-style: italic;">Razão Social: ${escapeHtml(razaoSocial)}</div>` : ''}
+                    </div>
+                    <div style="text-align: right; font-size: 8.5pt; color: #4b5563;">
+                        <div>Emissão: <strong>${emissaoStr}</strong></div>
+                        <div>Total Itens/OS: <strong>${items.length}</strong></div>
+                    </div>
+                </div>
+                <div class="client-print-card" style="margin-top: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-size: 8.5pt;">
+                        <div><strong>Família Selecionada:</strong> ${escapeHtml(nomeFamilia)} ${codFamilia ? `(ID ${codFamilia})` : ''}</div>
+                        <div><strong>Período Pesquisado:</strong> ${periodText}</div>
+                        <div><strong>Cidade / UF:</strong> ${escapeHtml(client.cidade || 'Não informada')}</div>
+                        <div><strong>CNPJ / CPF:</strong> ${escapeHtml(client.documento || 'Não informado')}</div>
+                        <div><strong>Total OSs Distintas:</strong> ${data.total_ordens_servico || 0} OSs</div>
+                        <div><strong>Total Faturado Família:</strong> R$ ${formatMoney(data.total_faturamento || 0)}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats KPI Cards -->
+            <div class="client-print-stats" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Total Faturado</span>
+                    <span class="client-print-stat-value" style="color: #059669;">R$ ${formatMoney(data.total_faturamento || 0)}</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Volume de Peças</span>
+                    <span class="client-print-stat-value" style="color: #2563eb;">${(data.total_quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} un.</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Ordens de Serviço</span>
+                    <span class="client-print-stat-value">${data.total_ordens_servico || 0} OSs</span>
+                </div>
+                <div class="client-print-stat-box">
+                    <span class="client-print-stat-label">Preço Médio / Peça</span>
+                    <span class="client-print-stat-value">R$ ${formatMoney(data.ticket_medio_peca || 0)}</span>
+                </div>
+            </div>
+
+            <!-- OS Table -->
+            <table class="client-print-table">
+                <thead>
+                    <tr>
+                        <th style="width: 75px; text-align: center;">Data</th>
+                        <th style="width: 85px; text-align: center;">Nº da OS</th>
+                        <th style="width: 70px; text-align: center;">Cód. Item</th>
+                        <th>Descrição da Lente / Produto</th>
+                        <th style="width: 55px; text-align: right;">Qtd</th>
+                        <th style="width: 85px; text-align: right;">Vlr Unit (R$)</th>
+                        <th style="width: 75px; text-align: right;">Desconto</th>
+                        <th style="width: 95px; text-align: right;">Total Item (R$)</th>
+                        <th style="width: 140px;">CFOP / Operação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRowsHtml || '<tr><td colspan="9" style="text-align:center; padding: 15px;">Nenhuma OS encontrada para esta família e cliente no período selecionado.</td></tr>'}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="4" style="text-align: right; font-weight: bold;">TOTAIS GERAIS:</td>
+                        <td style="text-align: right; font-weight: bold; color: #2563eb;">
+                            ${(data.total_quantidade || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+                        </td>
+                        <td></td>
+                        <td></td>
+                        <td style="text-align: right; font-weight: bold; color: #059669;">
+                            R$ ${formatMoney(data.total_faturamento || 0)}
+                        </td>
+                        <td style="font-weight: bold;">${data.total_ordens_servico || 0} OSs</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <div class="client-print-footer" style="margin-top: 12px; font-size: 8pt; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 6px; display: flex; justify-content: space-between;">
+                <span>Aspheric Analytics • Relatório de OSs da família ${escapeHtml(nomeFamilia)} para ${escapeHtml(displayName)}</span>
+                <span>${items.length} itens listados</span>
+            </div>
+        </div>
+    `;
+
+    document.body.classList.remove('printing-clientes-familia', 'printing-client-items');
+    document.body.classList.add('printing-family-orders');
+
+    const cleanup = () => {
+        document.body.classList.remove('printing-family-orders');
+        if (printFamilyOrdersContainer) printFamilyOrdersContainer.innerHTML = '';
+        window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setTimeout(() => {
+        window.print();
+        setTimeout(cleanup, 2500);
+    }, 150);
+}
+
+if (btnPrintFamilyOrders) {
+    btnPrintFamilyOrders.addEventListener('click', printFamilyOrdersReport);
 }
 
 if (btnSearchClientesFamilia) {
