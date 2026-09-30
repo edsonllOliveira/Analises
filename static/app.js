@@ -2306,7 +2306,7 @@ async function loadClientesFamiliaReport() {
     const selectedTipos = getSelectedFamiliaTipos();
     let tipoOpParam = '';
     if (selectedTipos.length === 0) {
-        tipoOpParam = '1,11';
+        tipoOpParam = FAMILIA_VENDA_TIPOS.join(',');
     } else if (selectedTipos.length === familiaTiposData.length) {
         tipoOpParam = 'todos';
     } else {
@@ -2512,7 +2512,7 @@ window.openClientFamilyItemsModal = async function(codPessoa, clientName) {
     const selectedTipos = getSelectedFamiliaTipos();
     let tipoOpParam = '';
     if (selectedTipos.length === 0) {
-        tipoOpParam = '1,11';
+        tipoOpParam = FAMILIA_VENDA_TIPOS.join(',');
     } else if (selectedTipos.length === familiaTiposData.length) {
         tipoOpParam = 'todos';
     } else {

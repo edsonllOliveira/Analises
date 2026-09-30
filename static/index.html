@@ -649,10 +649,13 @@
 
                 <div class="search-form" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
                     <div class="input-group" style="position: relative; grid-column: span 2;">
-                        <label for="familiaSearchInput">Descrição do Produto / Lente ou Família <span style="color: #ef4444;">*</span></label>
+                        <label for="familiaSearchInput">
+                            Descrição do Produto / Lente ou Família <span style="color: #ef4444;">*</span>
+                            <span style="font-size: 0.72rem; color: #94a3b8; font-weight: normal; margin-left: 6px;">(Dica: use <strong>&quot;aspas&quot;</strong> para termo exato sem variações como Plus/Next)</span>
+                        </label>
                         <div class="input-with-icon">
                             <span class="input-icon">🔍</span>
-                            <input type="text" id="familiaSearchInput" placeholder="Digite a descrição ou parte da descrição (ex: ASPHERIC, LT BCO, 1.56, CR39...)" autocomplete="off">
+                            <input type="text" id="familiaSearchInput" placeholder="Ex: &quot;ESPACE&quot; (apenas Espace) ou ESPACE (todas as variações)..." autocomplete="off">
                             <button type="button" id="btnClearFamiliaSearch" class="btn-clear-input hidden" title="Limpar busca">✕</button>
                         </div>
                     </div>
@@ -1099,6 +1102,6 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.6.4"></script>
+    <script src="app.js?v=1.6.5"></script>
 </body>
 </html>

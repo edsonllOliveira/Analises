@@ -1256,6 +1256,71 @@ def get_familias_autocomplete(
         logger.error(f"Erro no autocomplete de famílias: {e}")
         return []
 
+# Lista de materiais, índices e tratamentos óticos padrão
+OPTICAL_MATERIAL_WORDS = {
+    'ORMA', 'POLY', 'POLI', 'TFL', 'CR39', 'CR-39', 'CR', 'CRISTAL', 'RESINA', 
+    '1.50', '1.55', '1.56', '1.59', '1.60', '1.67', '1.74', 
+    'TRIVEX', 'AIRWEAR', 'ACCLIMATES', 'TRANSITIONS', 'TRANS', 'UHD', 'NO',
+    'BCO', 'BRANCO', 'BRANCA', 'FOTO', 'CINZA', 'MARROM', 'VERDE',
+    'OD', 'OE', 'AO', '70MM', '65MM', '60MM', '75MM', '78MM'
+}
+
+def parse_search_query(raw_search: str):
+    """
+    Interpreta a busca do usuário.
+    Se contiver aspas duplas ou simples (ex: "ESPACE" ou "KODAK PRECISE"), ativa is_exact_phrase=True.
+    Também suporta operadores de exclusão com '-' (ex: -PLUS, -NEXT).
+    Retorna: (clean_term, is_exact_phrase, excluded_terms)
+    """
+    if not raw_search:
+        return '', False, []
+    raw = str(raw_search).strip()
+    is_exact_phrase = ('"' in raw) or ("'" in raw)
+    parts = raw.split()
+    excluded_terms = []
+    positive_parts = []
+    for p in parts:
+        clean_p = p.strip('"\'')
+        if clean_p.startswith('-') and len(clean_p) > 1:
+            excluded_terms.append(clean_p[1:].upper())
+        else:
+            positive_parts.append(p)
+    clean_term = ' '.join(positive_parts).replace('"', '').replace("'", "").strip().upper()
+    return clean_term, is_exact_phrase, excluded_terms
+
+def matches_optical_phrase(description: str, phrase: str, is_exact_phrase: bool, excluded_terms: list = None) -> bool:
+    """
+    Valida se a descrição atende ao termo e aos critérios de busca exata e exclusão.
+    - Se houver excluded_terms, qualquer descrição com esse termo é eliminada.
+    - Se is_exact_phrase=True, valida que a frase buscada é o produto base,
+      não aceitando palavras de sub-modelos posteriores (ex: PLUS, NEXT, SHORT, MAX).
+    """
+    if not description:
+        return False
+    desc_upper = description.upper()
+    if excluded_terms:
+        for ex in excluded_terms:
+            if ex in desc_upper:
+                return False
+    if not phrase:
+        return True
+    if not is_exact_phrase:
+        return phrase in desc_upper
+    tokens = desc_upper.split()
+    p_tokens = phrase.split()
+    n = len(p_tokens)
+    for i in range(len(tokens) - n + 1):
+        if tokens[i:i+n] == p_tokens:
+            if i + n == len(tokens):
+                return True
+            next_word = tokens[i+n].strip('(),-./')
+            if next_word in OPTICAL_MATERIAL_WORDS:
+                return True
+            if next_word.isdigit() or any(c in next_word for c in ['+', '-', '/']):
+                return True
+            return False
+    return False
+
 @app.get("/api/clientes/compraram-familia")
 def get_clientes_compraram_familia(
     search: Optional[str] = Query(None, description="Descrição ou código do produto, lente ou família"),
@@ -1269,9 +1334,9 @@ def get_clientes_compraram_familia(
 ):
     try:
         raw_search = search or familia or descricao or ""
-        search_clean = str(raw_search).strip().upper() if not hasattr(raw_search, 'default') and str(raw_search).strip() else None
+        clean_term, is_exact_phrase, excluded_terms = parse_search_query(raw_search)
 
-        if not search_clean:
+        if not clean_term and not excluded_terms:
             return {
                 "ordenar_por": "valor",
                 "termo_pesquisado": "",
@@ -1292,17 +1357,17 @@ def get_clientes_compraram_familia(
         # 1. Localizar famílias correspondentes pela descrição ou ID
         familias_encontradas = []
         family_ids = []
-        s_upper = search_clean.upper()
-        s_lower = search_clean.lower()
-        s_title = search_clean.title()
+        s_upper = clean_term.upper()
+        s_lower = clean_term.lower()
+        s_title = clean_term.title()
 
-        if search_clean.isdigit():
+        if clean_term.isdigit():
             cur.execute("""
                 SELECT COD_PRODUTOFAMILIA, DESCRICAO 
                 FROM PRODUTOFAMILIA 
                 WHERE COD_PRODUTOFAMILIA = ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
                 ORDER BY DESCRICAO
-            """, (int(search_clean), f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
+            """, (int(clean_term), f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
         else:
             cur.execute("""
                 SELECT COD_PRODUTOFAMILIA, DESCRICAO 
@@ -1314,34 +1379,39 @@ def get_clientes_compraram_familia(
         f_rows = cur.fetchall()
         for r in f_rows:
             if r[0] is not None:
-                family_ids.append(r[0])
-                familias_encontradas.append({
-                    "cod_familia": r[0],
-                    "descricao": r[1].strip() if r[1] else f"Família {r[0]}"
-                })
+                desc = r[1].strip() if r[1] else f"Família {r[0]}"
+                if matches_optical_phrase(desc, clean_term, is_exact_phrase, excluded_terms):
+                    family_ids.append(r[0])
+                    familias_encontradas.append({
+                        "cod_familia": r[0],
+                        "descricao": desc
+                    })
 
         # 2. Localizar itens correspondentes pela descrição ou código do item
         # Evitamos UPPER(DESCRICAO) para prevenir erro SQL -802 do Firebird em caracteres legados corrompidos
-        if search_clean.isdigit():
+        if clean_term.isdigit():
             cur.execute("""
-                SELECT FIRST 1000 COD_ITEM 
+                SELECT FIRST 1000 COD_ITEM, DESCRICAO 
                 FROM ITEM 
                 WHERE COD_ITEM = ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR COD_ITEM LIKE ?
-            """, (search_clean, f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%", f"%{s_upper}%"))
+            """, (clean_term, f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%", f"%{s_upper}%"))
         else:
             cur.execute("""
-                SELECT FIRST 1000 COD_ITEM 
+                SELECT FIRST 1000 COD_ITEM, DESCRICAO 
                 FROM ITEM 
                 WHERE COD_ITEM LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
             """, (f"%{s_upper}%", f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
         i_rows = cur.fetchall()
-        item_codes = [r[0].strip() for r in i_rows if r[0]]
+        item_codes = [
+            r[0].strip() for r in i_rows 
+            if r[0] and matches_optical_phrase(r[1] or "", clean_term, is_exact_phrase, excluded_terms)
+        ]
 
         if not family_ids and not item_codes:
             conn.close()
             return {
                 "ordenar_por": "valor",
-                "termo_pesquisado": search_clean,
+                "termo_pesquisado": raw_search,
                 "total_itens_encontrados": 0,
                 "total_familias_encontradas": 0,
                 "familias_encontradas": [],
@@ -1520,7 +1590,7 @@ def get_clientes_compraram_familia(
 
         return {
             "ordenar_por": order_metric,
-            "termo_pesquisado": search_clean,
+            "termo_pesquisado": raw_search,
             "total_itens_encontrados": len(item_codes),
             "total_familias_encontradas": len(familias_encontradas),
             "familias_encontradas": familias_encontradas[:20],
@@ -1580,44 +1650,50 @@ def get_cliente_itens_comprados(
 
         # 2. Localizar IDs de famílias e códigos de itens que contêm o termo
         raw_search = search or descricao or familia or ""
-        search_clean = str(raw_search).strip().upper() if not hasattr(raw_search, 'default') and str(raw_search).strip() else None
+        clean_term, is_exact_phrase, excluded_terms = parse_search_query(raw_search)
 
         family_ids = []
         item_codes = []
-        if search_clean:
-            s_upper = search_clean.upper()
-            s_lower = search_clean.lower()
-            s_title = search_clean.title()
+        if clean_term:
+            s_upper = clean_term.upper()
+            s_lower = clean_term.lower()
+            s_title = clean_term.title()
 
-            if search_clean.isdigit():
+            if clean_term.isdigit():
                 cur.execute("""
-                    SELECT COD_PRODUTOFAMILIA 
+                    SELECT COD_PRODUTOFAMILIA, DESCRICAO 
                     FROM PRODUTOFAMILIA 
                     WHERE COD_PRODUTOFAMILIA = ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
-                """, (int(search_clean), f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
+                """, (int(clean_term), f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
             else:
                 cur.execute("""
-                    SELECT COD_PRODUTOFAMILIA 
+                    SELECT COD_PRODUTOFAMILIA, DESCRICAO 
                     FROM PRODUTOFAMILIA 
                     WHERE DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
                 """, (f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
             f_rows = cur.fetchall()
-            family_ids = [r[0] for r in f_rows if r[0] is not None]
+            family_ids = [
+                r[0] for r in f_rows 
+                if r[0] is not None and matches_optical_phrase(r[1] or "", clean_term, is_exact_phrase, excluded_terms)
+            ]
 
-            if search_clean.isdigit():
+            if clean_term.isdigit():
                 cur.execute("""
-                    SELECT FIRST 1000 COD_ITEM 
+                    SELECT FIRST 1000 COD_ITEM, DESCRICAO 
                     FROM ITEM 
                     WHERE COD_ITEM = ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR COD_ITEM LIKE ?
-                """, (search_clean, f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%", f"%{s_upper}%"))
+                """, (clean_term, f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%", f"%{s_upper}%"))
             else:
                 cur.execute("""
-                    SELECT FIRST 1000 COD_ITEM 
+                    SELECT FIRST 1000 COD_ITEM, DESCRICAO 
                     FROM ITEM 
                     WHERE COD_ITEM LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ? OR DESCRICAO LIKE ?
                 """, (f"%{s_upper}%", f"%{s_upper}%", f"%{s_lower}%", f"%{s_title}%"))
             i_rows = cur.fetchall()
-            item_codes = [r[0].strip() for r in i_rows if r[0]]
+            item_codes = [
+                r[0].strip() for r in i_rows 
+                if r[0] and matches_optical_phrase(r[1] or "", clean_term, is_exact_phrase, excluded_terms)
+            ]
 
         # 3. Tipos de operação e datas
         tipos_op_clean = []
@@ -1755,7 +1831,7 @@ def get_cliente_itens_comprados(
 
         return {
             "cliente": cliente_info,
-            "termo_pesquisado": search_clean or "",
+            "termo_pesquisado": raw_search or "",
             "total_familias": len(items),
             "total_quantidade": total_quantidade,
             "total_faturamento": total_faturamento,
