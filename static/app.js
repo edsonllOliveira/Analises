@@ -3662,6 +3662,21 @@ function printOSReport(reportData) {
                 const famsText = (os.familias && os.familias.length > 0) 
                     ? os.familias.join(' • ') 
                     : '<span style="color: #94a3b8; font-style: italic;">Sem família vinculada</span>';
+                let itensHtml = '';
+                if (os.itens && os.itens.length > 0) {
+                    const lensOrMainItems = os.itens.filter(it => it.nome_familia || it.cod_familia > 0 || (it.quantidade > 0 && it.total > 0));
+                    const itemsToShow = lensOrMainItems.length > 0 ? lensOrMainItems : os.itens;
+                    itensHtml = `
+                        <div style="margin-top: 3px; font-size: 6.7pt; line-height: 1.25; color: #334155; border-top: 1px dashed #fed7aa; padding-top: 2px;">
+                            ${itemsToShow.map(it => `
+                                <div style="display: flex; justify-content: space-between; gap: 6px;">
+                                    <span>• <strong>${escapeHtml(it.descricao)}</strong> ${it.nome_familia ? `<span style="color: #9a3412; font-weight: 600;">[${escapeHtml(it.nome_familia)}]</span>` : ''}</span>
+                                    <span style="color: #64748b; white-space: nowrap;">${it.quantidade} un • R$ ${formatMoney(it.total)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
 
                 return `
                     <tr style="background-color: #fff7ed;">
@@ -3685,7 +3700,8 @@ function printOSReport(reportData) {
                             ` : ''}
                         </td>
                         <td style="font-size: 7.2pt; line-height: 1.25;">
-                            <strong style="color: #9a3412;">${famsText}</strong>
+                            <div style="color: #9a3412; font-weight: 700;">${famsText}</div>
+                            ${itensHtml}
                         </td>
                         <td style="text-align: right; white-space: nowrap; color: #059669; font-weight: 600; width: 90px;">
                             R$ ${formatMoney(os.total_icms)}
@@ -3901,28 +3917,34 @@ function printOSReport(reportData) {
 }
 
 async function handlePrintOSReportClick() {
-    // Utiliza os parâmetros da última pesquisa realizada ou os valores atuais da tela sem alterar nenhum campo
-    const activeParams = lastOSSearchParams || {
-        query: searchInput ? searchInput.value.trim() : '',
-        cliente: (function() {
-            if (selectedSearchCodPessoa) return String(selectedSearchCodPessoa);
-            if (osSearchClientInput) {
-                let rawVal = osSearchClientInput.value.trim();
-                if (rawVal.startsWith('Cód:')) return rawVal.split(' - ')[0].replace('Cód:', '').trim();
-                if (rawVal.startsWith('#')) return rawVal.split(' - ')[0].replace('#', '').trim();
-                return rawVal;
-            }
-            return '';
-        })(),
-        dtIni: osDateInicio ? osDateInicio.value : '',
-        dtFim: osDateFim ? osDateFim.value : '',
-        tipoOs: osTipoFiltro ? osTipoFiltro.value : 'todas'
-    };
+    // 1. Prioriza sempre as datas preenchidas nos campos de data da tela
+    let dtIni = (osDateInicio && osDateInicio.value) ? osDateInicio.value.trim() : '';
+    let dtFim = (osDateFim && osDateFim.value) ? osDateFim.value.trim() : '';
 
-    const query = activeParams.query || '';
-    const cliente = activeParams.cliente || '';
-    const dtIni = activeParams.dtIni || '';
-    const dtFim = activeParams.dtFim || '';
+    if (!dtIni && lastOSSearchParams && lastOSSearchParams.dtIni) {
+        dtIni = lastOSSearchParams.dtIni;
+    }
+    if (!dtFim && lastOSSearchParams && lastOSSearchParams.dtFim) {
+        dtFim = lastOSSearchParams.dtFim;
+    }
+
+    if (!dtIni || !dtFim) {
+        showToast('Por favor, informe a Data Inicial e a Data Final da emissão da OS para gerar o relatório.', 'warning');
+        return;
+    }
+
+    const query = (searchInput && searchInput.value) ? searchInput.value.trim() : (lastOSSearchParams ? (lastOSSearchParams.query || '') : '');
+    let cliente = '';
+    if (selectedSearchCodPessoa) {
+        cliente = String(selectedSearchCodPessoa);
+    } else if (osSearchClientInput && osSearchClientInput.value.trim()) {
+        let rawVal = osSearchClientInput.value.trim();
+        if (rawVal.startsWith('Cód:')) cliente = rawVal.split(' - ')[0].replace('Cód:', '').trim();
+        else if (rawVal.startsWith('#')) cliente = rawVal.split(' - ')[0].replace('#', '').trim();
+        else cliente = rawVal;
+    } else if (lastOSSearchParams && lastOSSearchParams.cliente) {
+        cliente = lastOSSearchParams.cliente;
+    }
 
     if (btnPrintOSReport) {
         btnPrintOSReport.disabled = true;
@@ -3930,12 +3952,12 @@ async function handlePrintOSReportClick() {
     }
 
     try {
-        // Busca com base na data pesquisada pelo usuário
+        // Busca com base estrita no período de emissão da OS pesquisado
         let url = `/api/os/relatorio?limit=3000`;
         if (query) url += `&search=${encodeURIComponent(query)}`;
         if (cliente) url += `&cliente=${encodeURIComponent(cliente)}`;
-        if (dtIni) url += `&data_inicio=${encodeURIComponent(dtIni)}`;
-        if (dtFim) url += `&data_fim=${encodeURIComponent(dtFim)}`;
+        url += `&data_inicio=${encodeURIComponent(dtIni)}`;
+        url += `&data_fim=${encodeURIComponent(dtFim)}`;
 
         const res = await fetch(url);
         if (!res.ok) {
@@ -3945,7 +3967,7 @@ async function handlePrintOSReportClick() {
 
         const reportData = await res.json();
         if (!reportData.ordens_servico || reportData.ordens_servico.length === 0) {
-            showToast('Nenhuma ordem de serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4 (e "GARANTIA" na observação) localizada para os parâmetros informados.', 'warning');
+            showToast('Nenhuma ordem de serviço com emissão no período pesquisado localizada.', 'warning');
             return;
         }
 

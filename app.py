@@ -650,9 +650,12 @@ def get_os_relatorio(
         cur.execute(sql, tuple(params))
         rows = cur.fetchall()
 
-        # Batch fetch famílias de lentes para as OSs (máximo 500 OSs por lote)
+        # Fetch famílias e itens estritamente das OSs encontradas no período pesquisado
         os_ids = [r[0] for r in rows]
         fam_map = {}
+        items_by_os = {}
+        fam_agg = {}
+
         if os_ids:
             chunk_size = 400
             for i in range(0, len(os_ids), chunk_size):
@@ -661,18 +664,68 @@ def get_os_relatorio(
                 cur.execute(f"""
                     SELECT 
                         ti.COD_TRANSACAO,
+                        ti.COD_ITEM,
+                        CAST(ti.DESCRICAO AS VARCHAR(250)),
+                        ti.QUANTIDADE,
+                        ti.VALORUNITARIO,
+                        ti.TOTAL,
+                        COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0) AS COD_FAMILIA,
                         COALESCE(NULLIF(TRIM(pf1.DESCRICAO), ''), NULLIF(TRIM(pf2.DESCRICAO), ''), '') AS NOME_FAMILIA
                     FROM TRANSACAO_ITEM ti
                     LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
                     LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
                     LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
                     WHERE ti.COD_TRANSACAO IN ({ph})
+                    ORDER BY ti.COD_TRANSACAO, ti.COD_TRANSACAOITEM
                 """, tuple(chunk))
                 for ir in cur.fetchall():
                     cod_t = ir[0]
-                    fam_name = ir[1].strip() if ir[1] else ''
-                    if fam_name and fam_name not in fam_map.setdefault(cod_t, []):
-                        fam_map[cod_t].append(fam_name)
+                    cod_item = ir[1]
+                    desc_item = ir[2].strip() if ir[2] else ''
+                    qtd = float(ir[3]) if ir[3] is not None else 0.0
+                    vunit = float(ir[4]) if ir[4] is not None else 0.0
+                    tot = float(ir[5]) if ir[5] is not None else 0.0
+                    cod_fam = ir[6] or 0
+                    nome_fam = ir[7].strip() if ir[7] else ''
+
+                    items_by_os.setdefault(cod_t, []).append({
+                        "cod_item": cod_item,
+                        "descricao": desc_item,
+                        "quantidade": qtd,
+                        "valor_unitario": vunit,
+                        "total": tot,
+                        "cod_familia": cod_fam,
+                        "nome_familia": nome_fam
+                    })
+
+                    if nome_fam and nome_fam not in fam_map.setdefault(cod_t, []):
+                        fam_map[cod_t].append(nome_fam)
+
+                    if nome_fam or cod_fam > 0:
+                        fam_key = cod_fam if cod_fam > 0 else nome_fam
+                        if fam_key not in fam_agg:
+                            fam_agg[fam_key] = {
+                                "cod_familia": cod_fam,
+                                "nome_familia": nome_fam or f"Família {cod_fam}",
+                                "qtd_pecas": 0.0,
+                                "valor_total": 0.0,
+                                "os_set": set()
+                            }
+                        fam_agg[fam_key]["qtd_pecas"] += qtd
+                        fam_agg[fam_key]["valor_total"] += tot
+                        fam_agg[fam_key]["os_set"].add(cod_t)
+
+        conn.close()
+
+        familias_garantia = []
+        for fam_info in sorted(fam_agg.values(), key=lambda x: x["qtd_pecas"], reverse=True):
+            familias_garantia.append({
+                "cod_familia": fam_info["cod_familia"],
+                "nome_familia": fam_info["nome_familia"],
+                "qtd_pecas": round(fam_info["qtd_pecas"], 2),
+                "valor_total": round(fam_info["valor_total"], 2),
+                "qtd_os": len(fam_info["os_set"])
+            })
 
         result_os = []
         for r in rows:
@@ -701,70 +754,13 @@ def get_os_relatorio(
                 "is_garantia": is_garantia,
                 "observacao": obs_clean,
                 "familias": fam_map.get(r[0], []),
+                "itens": items_by_os.get(r[0], []),
                 "total": float(r[8]) if r[8] is not None else 0.0,
                 "total_produtos": float(r[9]) if r[9] is not None else 0.0,
                 "total_servicos": float(r[10]) if r[10] is not None else 0.0,
                 "total_icms": float(r[11]) if r[11] is not None else 0.0,
                 "valor_desconto": float(r[12]) if r[12] is not None else 0.0,
                 "data_emissao": str(r[13]) if r[13] else None
-            })
-
-        # 2. Buscar resumo consolidado de Famílias de Lentes emitidas em Garantia no período selecionado
-        garantia_sql = """
-            SELECT 
-                COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0) AS COD_FAMILIA,
-                COALESCE(NULLIF(TRIM(pf1.DESCRICAO), ''), NULLIF(TRIM(pf2.DESCRICAO), ''), 'Outros / Sem Família') AS NOME_FAMILIA,
-                SUM(ti.QUANTIDADE) AS QTD_PECAS,
-                SUM(ti.TOTAL) AS VALOR_TOTAL,
-                COUNT(DISTINCT t.COD_TRANSACAO) AS QTD_OS
-            FROM TRANSACAO t
-            JOIN TRANSACAO_ITEM ti ON ti.COD_TRANSACAO = t.COD_TRANSACAO AND ti.COD_EMPRESA = t.COD_EMPRESA
-            JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
-            LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
-            LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
-            LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
-            LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
-            WHERE t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
-              AND t.OBSERVACAO CONTAINING 'GARANTIA'
-              AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
-        """
-        garantia_params = []
-        if dt_ini:
-            garantia_sql += " AND t.DATAEMISSAO >= ?"
-            garantia_params.append(dt_ini)
-        if dt_fim:
-            garantia_sql += " AND t.DATAEMISSAO <= ?"
-            garantia_params.append(dt_fim)
-
-        if client_clean:
-            if client_clean.isdigit():
-                garantia_sql += " AND (UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ?)"
-                c_param = f"%{client_clean}%"
-                garantia_params.extend([c_param, c_param, int(client_clean), int(client_clean)])
-            else:
-                garantia_sql += " AND (UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))"
-                c_param = f"%{client_clean}%"
-                garantia_params.extend([c_param, c_param])
-
-        garantia_sql += """
-            GROUP BY 
-                COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0),
-                COALESCE(NULLIF(TRIM(pf1.DESCRICAO), ''), NULLIF(TRIM(pf2.DESCRICAO), ''), 'Outros / Sem Família')
-            ORDER BY SUM(ti.QUANTIDADE) DESC
-        """
-
-        cur.execute(garantia_sql, tuple(garantia_params))
-        garantia_rows = cur.fetchall()
-        conn.close()
-
-        familias_garantia = []
-        for gr in garantia_rows:
-            familias_garantia.append({
-                "cod_familia": gr[0],
-                "nome_familia": gr[1].strip() if gr[1] else f"Família {gr[0]}",
-                "qtd_pecas": float(gr[2]) if gr[2] is not None else 0.0,
-                "valor_total": float(gr[3]) if gr[3] is not None else 0.0,
-                "qtd_os": int(gr[4]) if gr[4] is not None else 0
             })
 
         total_os = len(result_os)
