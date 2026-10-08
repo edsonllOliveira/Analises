@@ -7,7 +7,12 @@ Plataforma web desenvolvida para consulta e ajuste de **Ordens de Serviço (OS)*
 ## 🚀 Funcionalidades Principais
 
 ### 1. 📋 Módulo de Ajuste de Ordem de Serviço (OS)
-* **Busca Rápida de OS**: Pesquisa por número da OS, código interno ou nome do cliente.
+* **Busca Rápida e Filtros Avançados**: Pesquisa por número da OS, código interno, cliente, período de datas (Data Inicial / Final), quantidade de registros e **Tipo de Operação** (Todas as OSs, Apenas Garantias ou Vendas Normais).
+* **Identificação Visual de Garantias e Famílias**: Destaque com badges para ordens emitidas em garantia (`🛡️ Garantia`) e identificação das famílias das lentes e produtos diretamente na tabela.
+* **🖨️ Relatório Profissional de Ordens de Serviço & Garantias**:
+  * Emissão de relatório executivo com cabeçalho formal e KPIs consolidados (Total de OSs, Faturamento Global, Total ICMS, OSs em Garantia, Volume de Peças em Garantia e Custo/Valor de Garantia).
+  * **Painel Especial de Famílias em Garantia**: Resumo consolidado de todas as famílias de lentes emitidas em garantia no período selecionado, com ranking, quantidade de peças, volume de OSs e valor registrado.
+  * **Relação Detalhada de OSs**: Tabela completa para impressão com Nº OS, Data, Cliente, Operação Fiscal/CFOP, Famílias das Lentes, ICMS e Total.
 * **Modal em Tela Cheia (Full Screen - 98vw)**: Interface expansível para visualização de todos os itens e tributos sem cortes.
 * **Ajuste de Operação Fiscal (CFOP)**: Alteração da Operação Fiscal no cabeçalho e individualmente por item.
 * **Edição Completa de Tributos Globais (Cabeçalho)**:

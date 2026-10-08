@@ -35,3 +35,4 @@ Thumbs.db
 # Temp / Logs / Scratch
 *.log
 *.tmp
+scratch/

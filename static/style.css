@@ -791,7 +791,8 @@ select:focus,
     /* Hide executive print containers by default in print unless their specific body class is active */
     #printClientItemsContainer,
     #printFamilyOrdersContainer,
-    #printClientesFamiliaContainer {
+    #printClientesFamiliaContainer,
+    #printOsReportContainer {
         display: none !important;
     }
 
@@ -845,16 +846,25 @@ select:focus,
     body.printing-client-items .app-header,
     body.printing-client-items #printClientesFamiliaContainer,
     body.printing-client-items #printFamilyOrdersContainer,
+    body.printing-client-items #printOsReportContainer,
     body.printing-family-orders .main-content,
     body.printing-family-orders .modal-overlay,
     body.printing-family-orders .app-header,
     body.printing-family-orders #printClientesFamiliaContainer,
     body.printing-family-orders #printClientItemsContainer,
+    body.printing-family-orders #printOsReportContainer,
     body.printing-clientes-familia .main-content,
     body.printing-clientes-familia .modal-overlay,
     body.printing-clientes-familia .app-header,
     body.printing-clientes-familia #printClientItemsContainer,
-    body.printing-clientes-familia #printFamilyOrdersContainer {
+    body.printing-clientes-familia #printFamilyOrdersContainer,
+    body.printing-clientes-familia #printOsReportContainer,
+    body.printing-os-report .main-content,
+    body.printing-os-report .modal-overlay,
+    body.printing-os-report .app-header,
+    body.printing-os-report #printClientItemsContainer,
+    body.printing-os-report #printFamilyOrdersContainer,
+    body.printing-os-report #printClientesFamiliaContainer {
         display: none !important;
     }
 
@@ -884,11 +894,21 @@ select:focus,
         margin: 0 !important;
         padding: 0 !important;
     }
+
+    body.printing-os-report #printOsReportContainer {
+        display: block !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 }
 
 #printClientItemsContainer,
 #printFamilyOrdersContainer,
-#printClientesFamiliaContainer {
+#printClientesFamiliaContainer,
+#printOsReportContainer {
     display: none;
 }
 

@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=1.4.6">
+    <link rel="stylesheet" href="style.css?v=1.5.0">
 </head>
 <body>
 
@@ -109,6 +109,15 @@
                     </div>
 
                     <div class="input-group">
+                        <label for="osTipoFiltro">Tipo de Operação</label>
+                        <select id="osTipoFiltro" class="form-control">
+                            <option value="todas" selected>📋 Todas as OSs</option>
+                            <option value="garantia">🛡️ Apenas Garantias</option>
+                            <option value="normal">🛒 Apenas Vendas/Normais</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
                         <label for="limitSelect">Quantidade</label>
                         <select id="limitSelect">
                             <option value="15">15 registros</option>
@@ -119,8 +128,8 @@
                         </select>
                     </div>
 
-                    <div class="button-group" style="align-self: flex-end;">
-                        <button id="btnSearch" class="btn btn-primary" style="width: 100%;">
+                    <div class="button-group" style="align-self: flex-end; display: flex; gap: 0.5rem;">
+                        <button id="btnSearch" class="btn btn-primary" style="flex: 1;">
                             <span>Buscar OS</span>
                         </button>
                     </div>
@@ -129,9 +138,17 @@
 
             <!-- Results Table -->
             <section class="card result-card">
-                <div class="card-header">
-                    <h2>Ordens de Serviço Encontradas</h2>
-                    <span id="resultCountBadge" class="badge">0 encontradas</span>
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <h2>Ordens de Serviço Encontradas</h2>
+                        <span id="resultCountBadge" class="badge">0 encontradas</span>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button id="btnPrintOSReport" class="btn btn-success" style="padding: 0.55rem 1.15rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem;" title="Imprimir Relatório Profissional das OSs e Famílias em Garantia">
+                            <span>🖨️</span>
+                            <span>Imprimir Relatório</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="table-responsive">
@@ -143,6 +160,7 @@
                                 <th>Cliente</th>
                                 <th>Emissão</th>
                                 <th>Operação Fiscal</th>
+                                <th>Famílias / Lentes</th>
                                 <th>Total (R$)</th>
                                 <th>Total ICMS (R$)</th>
                                 <th class="text-center">Ações</th>
@@ -150,7 +168,7 @@
                         </thead>
                         <tbody id="osTableBody">
                             <tr>
-                                <td colspan="8" class="text-center empty-state">
+                                <td colspan="9" class="text-center empty-state">
                                     Clique em <strong>Buscar OS</strong> para listar as ordens de serviço.
                                 </td>
                             </tr>
@@ -1099,9 +1117,14 @@
         <!-- Rendered dynamically upon clicking print clientes report -->
     </div>
 
+    <!-- Print Template for Ordens de Serviço (Relatório Profissional de OS com Famílias de Garantia) -->
+    <div id="printOsReportContainer" class="print-only">
+        <!-- Rendered dynamically upon clicking print OS report -->
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.6.5"></script>
+    <script src="app.js?v=1.7.0"></script>
 </body>
 </html>
