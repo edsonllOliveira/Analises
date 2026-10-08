@@ -3606,41 +3606,129 @@ function printOSReport(reportData) {
         `;
     }
 
-    // Tabela detalhada das OSs
-    let osRowsHtml = ordensServico.map(os => {
-        const isGar = os.is_garantia;
-        const famsText = (os.familias && os.familias.length > 0) 
-            ? os.familias.join(' • ') 
-            : '<span style="color: #94a3b8; font-style: italic;">Sem família vinculada</span>';
+    // Agrupamento por Clientes
+    const clientesMap = {};
+    ordensServico.forEach(os => {
+        const key = os.cod_pessoa || os.cliente_nome || 'outros';
+        if (!clientesMap[key]) {
+            clientesMap[key] = {
+                cod_pessoa: os.cod_pessoa,
+                cliente_identificador: os.cliente_identificador,
+                cliente_nome: os.cliente_nome,
+                ordens: [],
+                total: 0.0,
+                total_icms: 0.0,
+                garantias_count: 0
+            };
+        }
+        clientesMap[key].ordens.push(os);
+        clientesMap[key].total += (os.total || 0);
+        clientesMap[key].total_icms += (os.total_icms || 0);
+        if (os.is_garantia) {
+            clientesMap[key].garantias_count += 1;
+        }
+    });
 
-        return `
-            <tr style="${isGar ? 'background-color: #fff7ed;' : ''}">
-                <td style="text-align: center; font-weight: bold;">
-                    #${escapeHtml(os.numero_os)}
-                    <div style="font-size: 7pt; color: #64748b;">ID ${escapeHtml(os.cod_ordemservico)}</div>
-                </td>
-                <td style="text-align: center; white-space: nowrap;">${formatDateBR(os.data_emissao)}</td>
-                <td>
-                    <div style="font-weight: 600; color: #0f172a;">${escapeHtml(os.cliente_nome)}</div>
-                </td>
-                <td>
-                    <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
-                        ${isGar ? '<span class="badge" style="border-color: #ea580c; color: #c2410c; font-weight: bold; background: #ffedd5; font-size: 7pt; padding: 1px 4px;">🛡️ GARANTIA</span>' : ''}
-                        <span style="font-size: 7.5pt; color: #334155;">${escapeHtml(os.natureza_descricao || os.cod_naturezaoperacao)}</span>
+    const clientesList = Object.values(clientesMap).sort((a, b) => {
+        return (a.cliente_nome || '').localeCompare(b.cliente_nome || '', 'pt-BR');
+    });
+
+    let clientSectionsHtml = '';
+    if (clientesList.length > 0) {
+        clientSectionsHtml = clientesList.map((client) => {
+            const ordens = client.ordens;
+            const rowsHtml = ordens.map(os => {
+                const isGar = os.is_garantia;
+                const famsText = (os.familias && os.familias.length > 0) 
+                    ? os.familias.join(' • ') 
+                    : '<span style="color: #94a3b8; font-style: italic;">Sem família vinculada</span>';
+
+                return `
+                    <tr style="${isGar ? 'background-color: #fff7ed;' : ''}">
+                        <td style="text-align: center; font-weight: bold; width: 90px;">
+                            #${escapeHtml(os.numero_os)}
+                            <div style="font-size: 6.8pt; color: #64748b;">ID ${escapeHtml(os.cod_ordemservico)}</div>
+                        </td>
+                        <td style="text-align: center; white-space: nowrap; width: 75px;">${formatDateBR(os.data_emissao)}</td>
+                        <td style="width: 175px;">
+                            <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                                ${isGar ? '<span class="badge" style="border-color: #ea580c; color: #c2410c; font-weight: bold; background: #ffedd5; font-size: 6.8pt; padding: 1px 4px;">🛡️ GARANTIA</span>' : ''}
+                                <span style="font-size: 7.2pt; color: #334155;">${escapeHtml(os.natureza_descricao || os.cod_naturezaoperacao)}</span>
+                            </div>
+                        </td>
+                        <td style="font-size: 7.2pt; line-height: 1.25;">
+                            <strong style="color: ${isGar ? '#9a3412' : '#1e3a8a'};">${famsText}</strong>
+                        </td>
+                        <td style="text-align: right; white-space: nowrap; color: #059669; font-weight: 600; width: 90px;">
+                            R$ ${formatMoney(os.total_icms)}
+                        </td>
+                        <td style="text-align: right; white-space: nowrap; font-weight: bold; color: ${isGar ? '#c2410c' : '#1e3a8a'}; width: 105px;">
+                            R$ ${formatMoney(os.total)}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            return `
+                <div style="margin-bottom: 10px; page-break-inside: avoid; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden;">
+                    <!-- Cabeçalho do Cliente -->
+                    <div style="background-color: #f1f5f9; padding: 5px 10px; border-bottom: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 9.5pt;">👤</span>
+                            <div>
+                                <span style="font-weight: 700; font-size: 8.5pt; color: #0f172a;">${escapeHtml(client.cliente_nome)}</span>
+                                ${client.cliente_identificador ? `<span style="font-size: 7.5pt; color: #64748b; margin-left: 4px;">(Cód: ${escapeHtml(client.cliente_identificador)})</span>` : ''}
+                            </div>
+                            ${client.garantias_count > 0 ? `
+                                <span class="badge" style="background: #ffedd5; border: 1px solid #ea580c; color: #c2410c; font-weight: bold; font-size: 6.8pt; padding: 1px 5px;">
+                                    🛡️ ${client.garantias_count} Garantia${client.garantias_count > 1 ? 's' : ''}
+                                </span>
+                            ` : ''}
+                        </div>
+                        <div style="display: flex; gap: 12px; align-items: center; font-size: 7.8pt;">
+                            <span style="color: #475569;">Volume: <strong>${ordens.length} OS${ordens.length > 1 ? 's' : ''}</strong></span>
+                            <span style="color: #059669;">ICMS: <strong>R$ ${formatMoney(client.total_icms)}</strong></span>
+                            <span style="color: #1e3a8a; font-weight: 700;">Subtotal: <strong>R$ ${formatMoney(client.total)}</strong></span>
+                        </div>
                     </div>
-                </td>
-                <td style="font-size: 7.5pt; line-height: 1.25;">
-                    <strong style="color: ${isGar ? '#9a3412' : '#1e3a8a'};">${famsText}</strong>
-                </td>
-                <td style="text-align: right; white-space: nowrap; color: #059669; font-weight: 600;">
-                    R$ ${formatMoney(os.total_icms)}
-                </td>
-                <td style="text-align: right; white-space: nowrap; font-weight: bold; color: ${isGar ? '#c2410c' : '#1e3a8a'};">
-                    R$ ${formatMoney(os.total)}
-                </td>
-            </tr>
+
+                    <!-- Tabela de OSs do Cliente -->
+                    <table class="client-print-table" style="font-size: 7.2pt; border: none; margin: 0;">
+                        <thead>
+                            <tr style="background-color: #f8fafc !important;">
+                                <th style="width: 90px; text-align: center;">Nº da OS</th>
+                                <th style="width: 75px; text-align: center;">Emissão</th>
+                                <th style="width: 175px;">Operação Fiscal (CFOP)</th>
+                                <th>Famílias das Lentes / Produtos</th>
+                                <th style="width: 90px; text-align: right;">ICMS (R$)</th>
+                                <th style="width: 105px; text-align: right;">Total (R$)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rowsHtml}
+                        </tbody>
+                        ${ordens.length > 1 ? `
+                            <tfoot>
+                                <tr style="background-color: #f8fafc; font-weight: 600;">
+                                    <td colspan="4" style="text-align: right; font-size: 7pt; color: #475569;">
+                                        Subtotal do Cliente (${ordens.length} OSs):
+                                    </td>
+                                    <td style="text-align: right; color: #059669;">R$ ${formatMoney(client.total_icms)}</td>
+                                    <td style="text-align: right; color: #1e3a8a; font-weight: 700;">R$ ${formatMoney(client.total)}</td>
+                                </tr>
+                            </tfoot>
+                        ` : ''}
+                    </table>
+                </div>
+            `;
+        }).join('');
+    } else {
+        clientSectionsHtml = `
+            <div style="text-align: center; color: #64748b; padding: 14px; border: 1px dashed #cbd5e1; border-radius: 4px;">
+                Nenhuma ordem de serviço localizada para os parâmetros informados.
+            </div>
         `;
-    }).join('');
+    }
 
     printOsReportContainer.innerHTML = `
         <div class="client-print-report" style="padding: 10px 14px;">
@@ -3661,16 +3749,21 @@ function printOSReport(reportData) {
                     </div>
                     <div style="text-align: right; font-size: 8.5pt; color: #475569; min-width: 175px;">
                         <div>Emissão: <strong>${emissaoStr}</strong></div>
+                        <div>Clientes: <strong>${clientesList.length}</strong></div>
                         <div>Total OSs: <strong>${resumo.total_os || ordensServico.length}</strong></div>
                         <div>Garantias: <strong style="color: #dc2626;">${resumo.total_garantia_os || 0} (${resumo.percentual_garantia || 0}%)</strong></div>
                     </div>
                 </div>
 
                 <!-- Painel de Indicadores Executivos -->
-                <div class="client-print-stats" style="grid-template-columns: repeat(6, 1fr); margin-top: 10px; margin-bottom: 6px; gap: 6px;">
+                <div class="client-print-stats" style="grid-template-columns: repeat(7, 1fr); margin-top: 10px; margin-bottom: 6px; gap: 6px;">
                     <div class="client-print-stat-box">
                         <span class="client-print-stat-label">Total de OSs</span>
                         <span class="client-print-stat-value" style="color: #1e3a8a;">${(resumo.total_os || 0).toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div class="client-print-stat-box">
+                        <span class="client-print-stat-label">Clientes</span>
+                        <span class="client-print-stat-value" style="color: #2563eb;">${clientesList.length}</span>
                     </div>
                     <div class="client-print-stat-box">
                         <span class="client-print-stat-label">Faturamento Global</span>
@@ -3685,11 +3778,11 @@ function printOSReport(reportData) {
                         <span class="client-print-stat-value" style="color: #ea580c;">${resumo.total_garantia_os || 0} un.</span>
                     </div>
                     <div class="client-print-stat-box" style="border-color: #fed7aa; background-color: #fff7ed;">
-                        <span class="client-print-stat-label" style="color: #c2410c;">Lentes em Garantia</span>
+                        <span class="client-print-stat-label" style="color: #c2410c;">Lentes Garantia</span>
                         <span class="client-print-stat-value" style="color: #dc2626;">${(resumo.total_garantia_pecas || 0).toLocaleString('pt-BR')} un.</span>
                     </div>
                     <div class="client-print-stat-box" style="border-color: #fed7aa; background-color: #fff7ed;">
-                        <span class="client-print-stat-label" style="color: #c2410c;">Custo / Valor Garantia</span>
+                        <span class="client-print-stat-label" style="color: #c2410c;">Custo Garantia</span>
                         <span class="client-print-stat-value" style="color: #b91c1c;">R$ ${formatMoney(resumo.total_garantia_valor || 0)}</span>
                     </div>
                 </div>
@@ -3733,45 +3826,28 @@ function printOSReport(reportData) {
                 </table>
             </div>
 
-            <!-- SEÇÃO DE RELAÇÃO DETALHADA DAS ORDENS DE SERVIÇO -->
+            <!-- SEÇÃO DE RELAÇÃO DAS ORDENS DE SERVIÇO AGRUPADAS POR CLIENTE -->
             <div style="margin-top: 8px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                     <h2 style="font-size: 9.5pt; font-weight: 700; color: #1e3a8a; text-transform: uppercase; margin: 0; display: flex; align-items: center; gap: 4px;">
-                        <span>📋</span>
-                        <span>Relação Detalhada das Ordens de Serviço (${ordensServico.length} OSs listadas)</span>
+                        <span>👥</span>
+                        <span>Ordens de Serviço Agrupadas por Cliente (${clientesList.length} clientes • ${ordensServico.length} OSs listadas)</span>
                     </h2>
-                    <span style="font-size: 7.5pt; color: #64748b;">Ordem cronológica decrescente</span>
+                    <span style="font-size: 7.5pt; color: #64748b;">Agrupamento alfabético por cliente</span>
                 </div>
-                <table class="client-print-table" style="font-size: 7.5pt;">
-                    <thead>
-                        <tr>
-                            <th style="width: 85px; text-align: center;">Nº da OS</th>
-                            <th style="width: 75px; text-align: center;">Emissão</th>
-                            <th style="width: 220px;">Cliente</th>
-                            <th style="width: 170px;">Operação Fiscal (CFOP)</th>
-                            <th>Famílias das Lentes / Produtos</th>
-                            <th style="width: 90px; text-align: right;">ICMS (R$)</th>
-                            <th style="width: 100px; text-align: right;">Total (R$)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${osRowsHtml || `
-                            <tr>
-                                <td colspan="7" style="text-align: center; color: #64748b; padding: 12px;">
-                                    Nenhuma ordem de serviço localizada para os parâmetros informados.
-                                </td>
-                            </tr>
-                        `}
-                    </tbody>
-                    <tfoot>
-                        <tr style="font-weight: bold; background-color: #f8fafc;">
-                            <td colspan="4" style="text-align: right;">Total Geral do Relatório:</td>
-                            <td style="font-size: 7pt; color: #475569;">${ordensServico.length} OSs listadas</td>
-                            <td style="text-align: right; color: #059669;">R$ ${formatMoney(resumo.total_icms || 0)}</td>
-                            <td style="text-align: right; color: #1e3a8a; font-size: 8.5pt;">R$ ${formatMoney(resumo.total_faturamento || 0)}</td>
-                        </tr>
-                    </tfoot>
-                </table>
+                
+                ${clientSectionsHtml}
+
+                <!-- Totais Consolidados Gerais no Encerramento -->
+                <div style="background-color: #0f172a; color: #ffffff; padding: 7px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 8pt; font-weight: bold; page-break-inside: avoid;">
+                    <div>
+                        TOTAL GERAL CONSOLIDADO: ${clientesList.length} Clientes Atendidos • ${resumo.total_os || ordensServico.length} OSs (${resumo.total_garantia_os || 0} em garantia)
+                    </div>
+                    <div style="display: flex; gap: 16px; align-items: center;">
+                        <span style="color: #6ee7b7;">Total ICMS: R$ ${formatMoney(resumo.total_icms || 0)}</span>
+                        <span style="color: #38bdf8; font-size: 9pt;">Faturamento Global: R$ ${formatMoney(resumo.total_faturamento || 0)}</span>
+                    </div>
+                </div>
             </div>
 
             <!-- Rodapé Formal do Relatório -->
@@ -3780,7 +3856,7 @@ function printOSReport(reportData) {
                     Documento emitido eletronicamente pelo módulo <strong>Aspheric Analytics</strong> em ${emissaoStr}.
                 </div>
                 <div style="font-style: italic;">
-                    Relatório Executivo de Gestão Fiscal & Garantias
+                    Relatório Executivo de Gestão Fiscal & Garantias Agrupado por Cliente
                 </div>
             </div>
         </div>
