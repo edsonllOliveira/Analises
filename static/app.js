@@ -18,6 +18,7 @@ const printOsReportContainer = document.getElementById('printOsReportContainer')
 const osTableBody = document.getElementById('osTableBody');
 const resultCountBadge = document.getElementById('resultCountBadge');
 let currentOsList = [];
+let lastOSSearchParams = null;
 
 // Modal Elements
 const editModal = document.getElementById('editModal');
@@ -418,6 +419,14 @@ async function searchOS() {
     const dtFim = osDateFim ? osDateFim.value : '';
     const limit = limitSelect ? limitSelect.value : '30';
     const tipoOs = osTipoFiltro ? osTipoFiltro.value : 'todas';
+
+    lastOSSearchParams = {
+        query: query,
+        cliente: cliente,
+        dtIni: dtIni,
+        dtFim: dtFim,
+        tipoOs: tipoOs
+    };
     
     btnSearch.disabled = true;
     btnSearch.innerHTML = '<span>Carregando...</span>';
@@ -3881,46 +3890,29 @@ function printOSReport(reportData) {
     }, 150);
 }
 
-function initDefaultOSDates() {
-    try {
-        const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
-        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-        const firstDayStr = firstDay.toISOString().split('T')[0];
-
-        if (osDateInicio && !osDateInicio.value) {
-            osDateInicio.value = firstDayStr;
-        }
-        if (osDateFim && !osDateFim.value) {
-            osDateFim.value = todayStr;
-        }
-    } catch (e) {
-        console.error('Erro initDefaultOSDates:', e);
-    }
-}
-
 async function handlePrintOSReportClick() {
-    initDefaultOSDates();
+    // Utiliza os parâmetros da última pesquisa realizada ou os valores atuais da tela sem alterar nenhum campo
+    const activeParams = lastOSSearchParams || {
+        query: searchInput ? searchInput.value.trim() : '',
+        cliente: (function() {
+            if (selectedSearchCodPessoa) return String(selectedSearchCodPessoa);
+            if (osSearchClientInput) {
+                let rawVal = osSearchClientInput.value.trim();
+                if (rawVal.startsWith('Cód:')) return rawVal.split(' - ')[0].replace('Cód:', '').trim();
+                if (rawVal.startsWith('#')) return rawVal.split(' - ')[0].replace('#', '').trim();
+                return rawVal;
+            }
+            return '';
+        })(),
+        dtIni: osDateInicio ? osDateInicio.value : '',
+        dtFim: osDateFim ? osDateFim.value : '',
+        tipoOs: osTipoFiltro ? osTipoFiltro.value : 'todas'
+    };
 
-    const query = searchInput ? searchInput.value.trim() : '';
-    let cliente = '';
-    if (selectedSearchCodPessoa) {
-        cliente = String(selectedSearchCodPessoa);
-    } else if (osSearchClientInput) {
-        let rawVal = osSearchClientInput.value.trim();
-        if (rawVal.startsWith('Cód:')) {
-            const parts = rawVal.split(' - ');
-            cliente = parts[0].replace('Cód:', '').trim();
-        } else if (rawVal.startsWith('#')) {
-            const parts = rawVal.split(' - ');
-            cliente = parts[0].replace('#', '').trim();
-        } else {
-            cliente = rawVal;
-        }
-    }
-    const dtIni = osDateInicio ? osDateInicio.value : '';
-    const dtFim = osDateFim ? osDateFim.value : '';
-    const tipoOs = osTipoFiltro ? osTipoFiltro.value : 'todas';
+    const query = activeParams.query || '';
+    const cliente = activeParams.cliente || '';
+    const dtIni = activeParams.dtIni || '';
+    const dtFim = activeParams.dtFim || '';
 
     if (btnPrintOSReport) {
         btnPrintOSReport.disabled = true;
@@ -3928,7 +3920,7 @@ async function handlePrintOSReportClick() {
     }
 
     try {
-        // Busca sempre o conjunto completo de OSs com Operações Fiscais 5949 ou 6949
+        // Busca com base na data pesquisada pelo usuário
         let url = `/api/os/relatorio?limit=3000`;
         if (query) url += `&search=${encodeURIComponent(query)}`;
         if (cliente) url += `&cliente=${encodeURIComponent(cliente)}`;
@@ -3971,7 +3963,6 @@ if (osTipoFiltro) {
 
 // Initialize Application (Carrega apenas a configuração do sistema e selects, sem disparar buscas pesadas no banco)
 document.addEventListener('DOMContentLoaded', async () => {
-    initDefaultOSDates();
     try { await loadDatabaseSelector(); } catch (e) { console.error('Erro loadDatabaseSelector:', e); }
     try { await checkStatus(); } catch (e) { console.error('Erro checkStatus:', e); }
     try { await loadNaturezas(); } catch (e) { console.error('Erro loadNaturezas:', e); }

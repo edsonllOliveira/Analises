@@ -485,9 +485,8 @@ def get_os_familias_garantia(
         conn = get_db_connection()
         cur = conn.cursor()
         
-        hoje = datetime.date.today()
-        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else hoje.strftime("%Y-%m-%d")
+        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else None
+        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else None
         
         sql = """
             SELECT 
@@ -503,11 +502,16 @@ def get_os_familias_garantia(
             LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
             LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
             LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
-            WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
-              AND t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
+            WHERE t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
               AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
         """
-        params = [dt_ini, dt_fim]
+        params = []
+        if dt_ini:
+            sql += " AND t.DATAEMISSAO >= ?"
+            params.append(dt_ini)
+        if dt_fim:
+            sql += " AND t.DATAEMISSAO <= ?"
+            params.append(dt_fim)
         
         client_clean = str(cliente).strip() if cliente and not hasattr(cliente, 'default') and str(cliente).strip() else None
         if client_clean:
@@ -570,11 +574,10 @@ def get_os_relatorio(
         conn = get_db_connection()
         cur = conn.cursor()
 
-        hoje = datetime.date.today()
-        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
-        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else hoje.strftime("%Y-%m-%d")
+        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else None
+        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else None
 
-        # 1. Buscar Ordens de Serviço com Operações Fiscais 5949 ou 6949 (Garantia/Troca)
+        # 1. Buscar Ordens de Serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4
         limit_val = int(limit) if limit is not None and not hasattr(limit, 'default') and int(limit) > 0 else 3000
         first_clause = f"FIRST {limit_val}"
         
@@ -592,12 +595,18 @@ def get_os_relatorio(
             JOIN TRANSACAO t ON t.COD_TRANSACAO = s.COD_SAIDA AND t.COD_EMPRESA = os.COD_EMPRESA
             LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
-            WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
-              AND t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
+            WHERE t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
         """
         
-        params = [dt_ini, dt_fim]
+        params = []
         where_clauses = []
+
+        if dt_ini:
+            where_clauses.append("t.DATAEMISSAO >= ?")
+            params.append(dt_ini)
+        if dt_fim:
+            where_clauses.append("t.DATAEMISSAO <= ?")
+            params.append(dt_fim)
 
         search_clean = str(search).strip() if search and not hasattr(search, 'default') and str(search).strip() else None
         if search_clean:
@@ -693,11 +702,16 @@ def get_os_relatorio(
             LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
             LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
             LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
-            WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
-              AND t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
+            WHERE t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
               AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
         """
-        garantia_params = [dt_ini, dt_fim]
+        garantia_params = []
+        if dt_ini:
+            garantia_sql += " AND t.DATAEMISSAO >= ?"
+            garantia_params.append(dt_ini)
+        if dt_fim:
+            garantia_sql += " AND t.DATAEMISSAO <= ?"
+            garantia_params.append(dt_fim)
 
         if client_clean:
             if client_clean.isdigit():
