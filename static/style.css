@@ -320,6 +320,54 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     transform: scale(1.15);
 }
 
+/* Date Picker Wrapper & Custom Trigger for Masked Inputs */
+.date-picker-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.date-picker-wrapper input.date-masked-input {
+    padding-right: 36px !important;
+    font-family: inherit;
+    letter-spacing: 0.5px;
+}
+
+.btn-date-picker-trigger {
+    position: absolute;
+    right: 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 1.05rem;
+    line-height: 1;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.75;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+    z-index: 2;
+}
+
+.btn-date-picker-trigger:hover {
+    transform: scale(1.15);
+    opacity: 1;
+}
+
+.hidden-native-date {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+}
+
 .input-with-icon input {
     padding-left: 42px !important;
 }

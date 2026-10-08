@@ -77,6 +77,58 @@ function formatDateBR(dateStr) {
     return str;
 }
 
+// Normaliza qualquer formato de data (DD/MM/AAAA ou YYYY-MM-DD) para YYYY-MM-DD válido.
+// Se dia for inválido para o mês (ex: 31/09/2026), ajusta automaticamente para o último dia válido (ex: 2026-09-30).
+function normalizeDateToISO(val) {
+    if (!val || typeof val !== 'string') return '';
+    const s = val.trim();
+    if (!s) return '';
+
+    // Verifica formato BR: DD/MM/AAAA ou DD-MM-AAAA
+    const brMatch = s.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+    if (brMatch) {
+        let d = parseInt(brMatch[1], 10);
+        let m = parseInt(brMatch[2], 10);
+        let y = parseInt(brMatch[3], 10);
+        if (m >= 1 && m <= 12 && y >= 1900 && y <= 2100) {
+            const maxDays = new Date(y, m, 0).getDate();
+            if (d > maxDays) d = maxDays;
+            if (d < 1) d = 1;
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${y}-${pad(m)}-${pad(d)}`;
+        }
+    }
+
+    // Verifica formato ISO: YYYY-MM-DD
+    const isoMatch = s.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+    if (isoMatch) {
+        let y = parseInt(isoMatch[1], 10);
+        let m = parseInt(isoMatch[2], 10);
+        let d = parseInt(isoMatch[3], 10);
+        if (m >= 1 && m <= 12 && y >= 1900 && y <= 2100) {
+            const maxDays = new Date(y, m, 0).getDate();
+            if (d > maxDays) d = maxDays;
+            if (d < 1) d = 1;
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${y}-${pad(m)}-${pad(d)}`;
+        }
+    }
+
+    return s;
+}
+
+// Converte data ISO ou string para formato brasileiro DD/MM/AAAA
+function formatISODateToBR(val) {
+    if (!val) return '';
+    const iso = normalizeDateToISO(val);
+    if (!iso) return val;
+    const parts = iso.split('-');
+    if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return val;
+}
+
 // HTML Escaper Helper
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
@@ -262,6 +314,71 @@ const osClientAutocompleteList = document.getElementById('osClientAutocompleteLi
 const btnClearClientSearch = document.getElementById('btnClearClientSearch');
 const osDateInicio = document.getElementById('osDateInicio');
 const osDateFim = document.getElementById('osDateFim');
+const osDateInicioPicker = document.getElementById('osDateInicioPicker');
+const osDateFimPicker = document.getElementById('osDateFimPicker');
+const btnPickerOsInicio = document.getElementById('btnPickerOsInicio');
+const btnPickerOsFim = document.getElementById('btnPickerOsFim');
+
+function setupDateMaskedInput(inputEl, pickerEl, triggerBtn) {
+    if (!inputEl) return;
+
+    inputEl.addEventListener('input', (e) => {
+        let val = e.target.value.replace(/\D/g, '');
+        if (val.length > 8) val = val.substring(0, 8);
+
+        let formatted = '';
+        if (val.length > 4) {
+            formatted = val.substring(0, 2) + '/' + val.substring(2, 4) + '/' + val.substring(4);
+        } else if (val.length > 2) {
+            formatted = val.substring(0, 2) + '/' + val.substring(2);
+        } else {
+            formatted = val;
+        }
+        e.target.value = formatted;
+    });
+
+    inputEl.addEventListener('blur', (e) => {
+        const val = e.target.value.trim();
+        if (val.length === 10) {
+            const iso = normalizeDateToISO(val);
+            if (iso) {
+                const correctedBR = formatISODateToBR(iso);
+                if (correctedBR !== val) {
+                    e.target.value = correctedBR;
+                }
+                if (pickerEl) pickerEl.value = iso;
+            }
+        }
+    });
+
+    if (triggerBtn && pickerEl) {
+        triggerBtn.addEventListener('click', () => {
+            const iso = normalizeDateToISO(inputEl.value);
+            if (iso) pickerEl.value = iso;
+            try {
+                if (typeof pickerEl.showPicker === 'function') {
+                    pickerEl.showPicker();
+                } else {
+                    pickerEl.focus();
+                }
+            } catch (err) {
+                pickerEl.focus();
+            }
+        });
+    }
+
+    if (pickerEl) {
+        pickerEl.addEventListener('change', () => {
+            if (pickerEl.value) {
+                inputEl.value = formatISODateToBR(pickerEl.value);
+                inputEl.dispatchEvent(new Event('change'));
+            }
+        });
+    }
+}
+
+setupDateMaskedInput(osDateInicio, osDateInicioPicker, btnPickerOsInicio);
+setupDateMaskedInput(osDateFim, osDateFimPicker, btnPickerOsFim);
 
 let selectedSearchCodPessoa = null;
 let activeAutocompleteIndex = -1;
@@ -415,8 +532,15 @@ async function searchOS() {
             cliente = rawVal;
         }
     }
-    const dtIni = osDateInicio ? osDateInicio.value : '';
-    const dtFim = osDateFim ? osDateFim.value : '';
+    const dtIni = normalizeDateToISO(osDateInicio ? osDateInicio.value : '');
+    const dtFim = normalizeDateToISO(osDateFim ? osDateFim.value : '');
+
+    if (osDateInicio && dtIni && osDateInicio.value.trim().length === 10) {
+        osDateInicio.value = formatISODateToBR(dtIni);
+    }
+    if (osDateFim && dtFim && osDateFim.value.trim().length === 10) {
+        osDateFim.value = formatISODateToBR(dtFim);
+    }
     const limit = limitSelect ? limitSelect.value : '30';
     const tipoOs = osTipoFiltro ? osTipoFiltro.value : 'todas';
 
@@ -1035,8 +1159,8 @@ function filterOSByClient(codPessoa, clientName) {
     if (topFim && topFim.value) dtFim = topFim.value;
     else if (prodFim && prodFim.value) dtFim = prodFim.value;
 
-    if (osDateInicio) osDateInicio.value = dtIni;
-    if (osDateFim) osDateFim.value = dtFim;
+    if (osDateInicio) osDateInicio.value = formatISODateToBR(dtIni);
+    if (osDateFim) osDateFim.value = formatISODateToBR(dtFim);
 
     // Set Limit to 0 (Todos os Registros / Sem Limite) to bring all OS records searched
     if (limitSelect) {
@@ -3918,14 +4042,24 @@ function printOSReport(reportData) {
 
 async function handlePrintOSReportClick() {
     // 1. Prioriza sempre as datas preenchidas nos campos de data da tela
-    let dtIni = (osDateInicio && osDateInicio.value) ? osDateInicio.value.trim() : '';
-    let dtFim = (osDateFim && osDateFim.value) ? osDateFim.value.trim() : '';
+    let rawIni = (osDateInicio && osDateInicio.value) ? osDateInicio.value.trim() : '';
+    let rawFim = (osDateFim && osDateFim.value) ? osDateFim.value.trim() : '';
+
+    let dtIni = normalizeDateToISO(rawIni);
+    let dtFim = normalizeDateToISO(rawFim);
+
+    if (osDateInicio && dtIni && rawIni.length === 10) {
+        osDateInicio.value = formatISODateToBR(dtIni);
+    }
+    if (osDateFim && dtFim && rawFim.length === 10) {
+        osDateFim.value = formatISODateToBR(dtFim);
+    }
 
     if (!dtIni && lastOSSearchParams && lastOSSearchParams.dtIni) {
-        dtIni = lastOSSearchParams.dtIni;
+        dtIni = normalizeDateToISO(lastOSSearchParams.dtIni);
     }
     if (!dtFim && lastOSSearchParams && lastOSSearchParams.dtFim) {
-        dtFim = lastOSSearchParams.dtFim;
+        dtFim = normalizeDateToISO(lastOSSearchParams.dtFim);
     }
 
     if (!dtIni || !dtFim) {

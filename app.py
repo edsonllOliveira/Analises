@@ -1,5 +1,7 @@
 import os
 import datetime
+import calendar
+import re
 import configparser
 import logging
 from typing import List, Optional
@@ -13,6 +15,36 @@ from pydantic import BaseModel
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("aspheric_analytics")
+
+def sanitize_date_param(val: Optional[str]) -> Optional[str]:
+    """
+    Normaliza e sanitiza valores de data para formato padrão Firebird (YYYY-MM-DD).
+    Aceita formatos YYYY-MM-DD, DD/MM/YYYY, etc.
+    Corrige dias fora do limite do mês (ex: 31/09/2026 -> 2026-09-30, 29/02/2026 -> 2026-02-28).
+    """
+    if not val or hasattr(val, 'default'):
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    
+    # 1. Verifica formato YYYY-MM-DD ou YYYY/MM/DD
+    m_iso = re.match(r'^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})', s)
+    if m_iso:
+        y, m, d = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
+    else:
+        # 2. Verifica formato DD/MM/YYYY ou DD-MM-YYYY
+        m_br = re.match(r'^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})', s)
+        if m_br:
+            d, m, y = int(m_br.group(1)), int(m_br.group(2)), int(m_br.group(3))
+        else:
+            return s
+            
+    if 1 <= m <= 12 and 1900 <= y <= 2100:
+        max_d = calendar.monthrange(y, m)[1]
+        clamped_d = min(max(1, d), max_d)
+        return f"{y:04d}-{m:02d}-{clamped_d:02d}"
+    return s
 
 def get_teste_ini_path():
     if os.path.exists(r"c:\DataWebTeste\Dilab\Db.ini"):
@@ -394,13 +426,16 @@ def list_os(
                 c_param = f"%{client_clean}%"
                 params.extend([c_param, c_param])
 
-        if data_inicio is not None and isinstance(data_inicio, str) and data_inicio.strip():
-            where_clauses.append("t.DATAEMISSAO >= ?")
-            params.append(data_inicio.strip())
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
 
-        if data_fim is not None and isinstance(data_fim, str) and data_fim.strip():
+        if dt_ini:
+            where_clauses.append("t.DATAEMISSAO >= ?")
+            params.append(dt_ini)
+
+        if dt_fim:
             where_clauses.append("t.DATAEMISSAO <= ?")
-            params.append(data_fim.strip())
+            params.append(dt_fim)
 
         if tipo_os and not hasattr(tipo_os, 'default'):
             tp_clean = str(tipo_os).strip().lower()
@@ -495,8 +530,8 @@ def get_os_familias_garantia(
         conn = get_db_connection()
         cur = conn.cursor()
         
-        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else None
-        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else None
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
         
         sql = """
             SELECT 
@@ -585,8 +620,8 @@ def get_os_relatorio(
         conn = get_db_connection()
         cur = conn.cursor()
 
-        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else None
-        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else None
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
 
         # 1. Buscar Ordens de Serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4
         limit_val = int(limit) if limit is not None and not hasattr(limit, 'default') and int(limit) > 0 else 3000
@@ -1262,8 +1297,8 @@ def get_produtos_mais_vendidos(
 
         tipo_item_clean = str(tipo_item).strip().lower() if tipo_item and not hasattr(tipo_item, 'default') else "todos"
 
-        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
-        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
 
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1431,8 +1466,8 @@ def get_clientes_mais_compraram(
 
         tipo_item_clean = str(tipo_item).strip().lower() if tipo_item and not hasattr(tipo_item, 'default') else "todos"
 
-        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
-        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
 
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1828,8 +1863,8 @@ def get_clientes_compraram_familia(
         if not tipos_op_clean and not is_explicit_todos:
             tipos_op_clean = [1, 8, 9, 10, 11, 12]
 
-        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
-        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
 
         # Montar filtros comuns para cada ramo do UNION ALL
         branch_where = [
@@ -2081,8 +2116,8 @@ def get_cliente_itens_comprados(
         if not tipos_op_clean and not is_explicit_todos:
             tipos_op_clean = [1, 8, 9, 10, 11, 12]
 
-        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
-        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
         limit_val = 1500
         if limit is not None and not hasattr(limit, 'default'):
             try:
@@ -2265,8 +2300,8 @@ def get_cliente_familia_ordens_servico(
         if not tipos_op_clean and not is_explicit_todos:
             tipos_op_clean = [1, 8, 9, 10, 11, 12]
 
-        dt_ini = str(data_inicio) if data_inicio and not hasattr(data_inicio, 'default') else None
-        dt_fim = str(data_fim) if data_fim and not hasattr(data_fim, 'default') else None
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
         limit_val = 1500
         if limit is not None and not hasattr(limit, 'default'):
             try:

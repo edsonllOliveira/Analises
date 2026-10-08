@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=1.5.0">
+    <link rel="stylesheet" href="style.css?v=1.5.1">
 </head>
 <body>
 
@@ -100,12 +100,20 @@
 
                     <div class="input-group">
                         <label for="osDateInicio">Data Inicial</label>
-                        <input type="date" id="osDateInicio" class="form-control">
+                        <div class="date-picker-wrapper">
+                            <input type="text" id="osDateInicio" class="form-control date-masked-input" placeholder="DD/MM/AAAA" maxlength="10" autocomplete="off" spellcheck="false">
+                            <input type="date" id="osDateInicioPicker" class="hidden-native-date" tabindex="-1" aria-hidden="true">
+                            <button type="button" class="btn-date-picker-trigger" id="btnPickerOsInicio" title="Abrir calendário" tabindex="-1">📅</button>
+                        </div>
                     </div>
 
                     <div class="input-group">
                         <label for="osDateFim">Data Final</label>
-                        <input type="date" id="osDateFim" class="form-control">
+                        <div class="date-picker-wrapper">
+                            <input type="text" id="osDateFim" class="form-control date-masked-input" placeholder="DD/MM/AAAA" maxlength="10" autocomplete="off" spellcheck="false">
+                            <input type="date" id="osDateFimPicker" class="hidden-native-date" tabindex="-1" aria-hidden="true">
+                            <button type="button" class="btn-date-picker-trigger" id="btnPickerOsFim" title="Abrir calendário" tabindex="-1">📅</button>
+                        </div>
                     </div>
 
                     <div class="input-group">
@@ -1125,6 +1133,6 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.7.7"></script>
+    <script src="app.js?v=1.7.8"></script>
 </body>
 </html>
