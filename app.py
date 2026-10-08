@@ -1,4 +1,5 @@
 import os
+import datetime
 import configparser
 import logging
 from typing import List, Optional
@@ -474,6 +475,88 @@ def list_os(
         logger.error(f"Erro ao listar OS: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/os/familias-garantia")
+def get_os_familias_garantia(
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
+    cliente: Optional[str] = Query(None)
+):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        hoje = datetime.date.today()
+        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else hoje.strftime("%Y-%m-%d")
+        
+        sql = """
+            SELECT 
+                COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0) AS COD_FAMILIA,
+                COALESCE(NULLIF(TRIM(pf1.DESCRICAO), ''), NULLIF(TRIM(pf2.DESCRICAO), ''), 'Outros / Sem Família') AS NOME_FAMILIA,
+                SUM(ti.QUANTIDADE) AS QTD_PECAS,
+                SUM(ti.TOTAL) AS VALOR_TOTAL,
+                COUNT(DISTINCT t.COD_TRANSACAO) AS QTD_OS
+            FROM TRANSACAO t
+            JOIN TRANSACAO_ITEM ti ON ti.COD_TRANSACAO = t.COD_TRANSACAO AND ti.COD_EMPRESA = t.COD_EMPRESA
+            JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
+            LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
+            LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
+            LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
+            WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
+              AND (nat.TIPO = 14 OR UPPER(nat.DESCRICAO) LIKE '%GARANTIA%' OR nat.COD_NATUREZAOPERACAO IN ('5.949-4', '6.949-4', '5949-1', '6949-3', '5949-3'))
+              AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
+        """
+        params = [dt_ini, dt_fim]
+        
+        client_clean = str(cliente).strip() if cliente and not hasattr(cliente, 'default') and str(cliente).strip() else None
+        if client_clean:
+            if client_clean.isdigit():
+                sql += " AND (UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ?)"
+                c_param = f"%{client_clean}%"
+                params.extend([c_param, c_param, int(client_clean), int(client_clean)])
+            else:
+                sql += " AND (UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))"
+                c_param = f"%{client_clean}%"
+                params.extend([c_param, c_param])
+
+        sql += """
+            GROUP BY 
+                COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA, 0),
+                COALESCE(NULLIF(TRIM(pf1.DESCRICAO), ''), NULLIF(TRIM(pf2.DESCRICAO), ''), 'Outros / Sem Família')
+            ORDER BY SUM(ti.QUANTIDADE) DESC
+        """
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+        
+        familias = []
+        total_pecas = 0.0
+        total_valor = 0.0
+        for gr in rows:
+            q = float(gr[2]) if gr[2] is not None else 0.0
+            v = float(gr[3]) if gr[3] is not None else 0.0
+            total_pecas += q
+            total_valor += v
+            familias.append({
+                "cod_familia": gr[0],
+                "nome_familia": gr[1].strip() if gr[1] else f"Família {gr[0]}",
+                "qtd_pecas": q,
+                "valor_total": v,
+                "qtd_os": int(gr[4]) if gr[4] is not None else 0
+            })
+        
+        return {
+            "data_inicio": dt_ini,
+            "data_fim": dt_fim,
+            "total_pecas": total_pecas,
+            "total_valor": total_valor,
+            "familias": familias
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar familias em garantia: {e}")
+        return {"data_inicio": "", "data_fim": "", "total_pecas": 0.0, "total_valor": 0.0, "familias": []}
+
 @app.get("/api/os/relatorio")
 def get_os_relatorio(
     search: Optional[str] = Query(None, description="Número da OS ou código"),
@@ -481,15 +564,19 @@ def get_os_relatorio(
     data_inicio: Optional[str] = Query(None, description="Data inicial YYYY-MM-DD"),
     data_fim: Optional[str] = Query(None, description="Data final YYYY-MM-DD"),
     tipo_os: Optional[str] = Query("todas", description="Filtro 'todas', 'garantia' ou 'normal'"),
-    limit: int = Query(0, ge=0, le=10000, description="0 = sem limite")
+    limit: int = Query(0, ge=0, le=10000, description="0 = sem limite seguro")
 ):
     try:
         conn = get_db_connection()
         cur = conn.cursor()
 
-        # 1. Buscar Ordens de Serviço do período
-        limit_val = int(limit) if limit is not None and not hasattr(limit, 'default') else 0
-        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+        hoje = datetime.date.today()
+        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else (hoje - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else hoje.strftime("%Y-%m-%d")
+
+        # 1. Buscar Ordens de Serviço do período de forma otimizada
+        limit_val = int(limit) if limit is not None and not hasattr(limit, 'default') and int(limit) > 0 else 1500
+        first_clause = f"FIRST {limit_val}"
         
         sql = f"""
             SELECT {first_clause} 
@@ -497,30 +584,10 @@ def get_os_relatorio(
                 t.COD_PESSOA, CAST(p.NOME AS VARCHAR(250)), CAST(p.RAZAOSOCIAL AS VARCHAR(250)),
                 t.COD_NATUREZAOPERACAO, CAST(nat.DESCRICAO AS VARCHAR(250)) AS NATUREZA_DESCRICAO,
                 t.TOTAL, t.TOTALPRODUTOS, t.TOTALSERVICOS,
-                COALESCE((
-                    SELECT SUM(
-                        CASE 
-                            WHEN ti.CST IN ('51', '051', '151', '251') AND ti.BASECALCULOICMS > 0 AND ti.ALIQUOTAICMS > 0 THEN
-                                ti.BASECALCULOICMS * (
-                                    CASE 
-                                        WHEN COALESCE(ti.ALIQUOTAICMSDIFERIMENTO, 0) > 0 THEN
-                                            ti.ALIQUOTAICMS * (1.0 - ti.ALIQUOTAICMSDIFERIMENTO / 100.0)
-                                        WHEN ti.ALIQUOTAICMS > 12.0 THEN
-                                            12.0
-                                        ELSE
-                                            ti.ALIQUOTAICMS
-                                    END / 100.0
-                                )
-                            ELSE
-                                COALESCE(ti.TOTALICMS, 0)
-                        END
-                    )
-                    FROM TRANSACAO_ITEM ti
-                    WHERE ti.COD_TRANSACAO = os.COD_ORDEMSERVICO AND ti.COD_EMPRESA = os.COD_EMPRESA
-                ), t.TOTALICMS, 0) AS TOTALICMS,
+                COALESCE(t.TOTALICMS, 0) AS TOTALICMS,
                 s.VALORDESCONTO, t.DATAEMISSAO, p.IDENTIFICADOR,
                 CASE 
-                    WHEN (UPPER(nat.DESCRICAO) LIKE '%GARANTIA%' OR nat.TIPO = 14) THEN 1 
+                    WHEN (nat.TIPO = 14 OR UPPER(nat.DESCRICAO) LIKE '%GARANTIA%' OR nat.COD_NATUREZAOPERACAO IN ('5.949-4', '6.949-4', '5949-1', '6949-3', '5949-3')) THEN 1 
                     ELSE 0 
                 END AS IS_GARANTIA
             FROM ORDEMSERVICO os
@@ -528,9 +595,10 @@ def get_os_relatorio(
             JOIN TRANSACAO t ON t.COD_TRANSACAO = s.COD_SAIDA AND t.COD_EMPRESA = os.COD_EMPRESA
             LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
         """
         
-        params = []
+        params = [dt_ini, dt_fim]
         where_clauses = []
 
         search_clean = str(search).strip() if search and not hasattr(search, 'default') and str(search).strip() else None
@@ -554,39 +622,26 @@ def get_os_relatorio(
                 c_param = f"%{client_clean}%"
                 params.extend([c_param, c_param])
 
-        dt_ini = str(data_inicio).strip() if data_inicio and not hasattr(data_inicio, 'default') and str(data_inicio).strip() else None
-        if dt_ini:
-            where_clauses.append("t.DATAEMISSAO >= ?")
-            params.append(dt_ini)
-
-        dt_fim = str(data_fim).strip() if data_fim and not hasattr(data_fim, 'default') and str(data_fim).strip() else None
-        if dt_fim:
-            where_clauses.append("t.DATAEMISSAO <= ?")
-            params.append(dt_fim)
-
         if tipo_os and not hasattr(tipo_os, 'default'):
             tp_clean = str(tipo_os).strip().lower()
             if tp_clean == "garantia":
-                where_clauses.append("(UPPER(nat.DESCRICAO) LIKE '%GARANTIA%' OR nat.TIPO = 14)")
+                where_clauses.append("(nat.TIPO = 14 OR UPPER(nat.DESCRICAO) LIKE '%GARANTIA%' OR nat.COD_NATUREZAOPERACAO IN ('5.949-4', '6.949-4', '5949-1', '6949-3', '5949-3'))")
             elif tp_clean == "normal" or tp_clean == "normais":
-                where_clauses.append("(UPPER(nat.DESCRICAO) NOT LIKE '%GARANTIA%' AND (nat.TIPO IS NULL OR nat.TIPO <> 14))")
+                where_clauses.append("(nat.TIPO <> 14 AND UPPER(nat.DESCRICAO) NOT LIKE '%GARANTIA%' AND nat.COD_NATUREZAOPERACAO NOT IN ('5.949-4', '6.949-4', '5949-1', '6949-3', '5949-3'))")
 
         if where_clauses:
-            sql += " WHERE " + " AND ".join(where_clauses)
+            sql += " AND " + " AND ".join(where_clauses)
             
         sql += " ORDER BY os.COD_ORDEMSERVICO DESC"
         
-        if params:
-            cur.execute(sql, tuple(params))
-        else:
-            cur.execute(sql)
+        cur.execute(sql, tuple(params))
         rows = cur.fetchall()
 
-        # Batch fetch famílias de lentes para as OSs
+        # Batch fetch famílias de lentes para as OSs (máximo 500 OSs por lote)
         os_ids = [r[0] for r in rows]
         fam_map = {}
         if os_ids:
-            chunk_size = 500
+            chunk_size = 400
             for i in range(0, len(os_ids), chunk_size):
                 chunk = os_ids[i:i+chunk_size]
                 ph = ','.join(['?'] * len(chunk))
@@ -647,33 +702,21 @@ def get_os_relatorio(
             LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
             LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
             LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
-            WHERE (UPPER(nat.DESCRICAO) LIKE '%GARANTIA%' OR nat.TIPO = 14)
+            WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
+              AND (nat.TIPO = 14 OR UPPER(nat.DESCRICAO) LIKE '%GARANTIA%' OR nat.COD_NATUREZAOPERACAO IN ('5.949-4', '6.949-4', '5949-1', '6949-3', '5949-3'))
               AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
         """
-        garantia_params = []
-        garantia_where = []
+        garantia_params = [dt_ini, dt_fim]
 
-        if data_inicio is not None and isinstance(data_inicio, str) and data_inicio.strip():
-            garantia_where.append("t.DATAEMISSAO >= ?")
-            garantia_params.append(data_inicio.strip())
-
-        if data_fim is not None and isinstance(data_fim, str) and data_fim.strip():
-            garantia_where.append("t.DATAEMISSAO <= ?")
-            garantia_params.append(data_fim.strip())
-
-        if cliente is not None and isinstance(cliente, str) and cliente.strip():
-            client_clean = cliente.strip()
+        if client_clean:
             if client_clean.isdigit():
-                garantia_where.append("(UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ?)")
+                garantia_sql += " AND (UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?) OR p.COD_PESSOA = ? OR p.IDENTIFICADOR = ?)"
                 c_param = f"%{client_clean}%"
                 garantia_params.extend([c_param, c_param, int(client_clean), int(client_clean)])
             else:
-                garantia_where.append("(UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))")
+                garantia_sql += " AND (UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))"
                 c_param = f"%{client_clean}%"
                 garantia_params.extend([c_param, c_param])
-
-        if garantia_where:
-            garantia_sql += " AND " + " AND ".join(garantia_where)
 
         garantia_sql += """
             GROUP BY 
@@ -682,10 +725,7 @@ def get_os_relatorio(
             ORDER BY SUM(ti.QUANTIDADE) DESC
         """
 
-        if garantia_params:
-            cur.execute(garantia_sql, tuple(garantia_params))
-        else:
-            cur.execute(garantia_sql)
+        cur.execute(garantia_sql, tuple(garantia_params))
         garantia_rows = cur.fetchall()
         conn.close()
 
@@ -713,8 +753,8 @@ def get_os_relatorio(
 
         return {
             "periodo": {
-                "data_inicio": data_inicio,
-                "data_fim": data_fim
+                "data_inicio": dt_ini,
+                "data_fim": dt_fim
             },
             "filtros": {
                 "search": search or "",

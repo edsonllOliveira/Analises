@@ -3802,7 +3802,27 @@ function printOSReport(reportData) {
     }, 150);
 }
 
+function initDefaultOSDates() {
+    try {
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+        const firstDayStr = firstDay.toISOString().split('T')[0];
+
+        if (osDateInicio && !osDateInicio.value) {
+            osDateInicio.value = firstDayStr;
+        }
+        if (osDateFim && !osDateFim.value) {
+            osDateFim.value = todayStr;
+        }
+    } catch (e) {
+        console.error('Erro initDefaultOSDates:', e);
+    }
+}
+
 async function handlePrintOSReportClick() {
+    initDefaultOSDates();
+
     const query = searchInput ? searchInput.value.trim() : '';
     let cliente = '';
     if (selectedSearchCodPessoa) {
@@ -3829,14 +3849,79 @@ async function handlePrintOSReportClick() {
     }
 
     try {
-        let url = `/api/os/relatorio?limit=0&tipo_os=${encodeURIComponent(tipoOs)}`;
+        // Se já existem registros listados na tela, podemos utilizá-los e buscar apenas o consolidado de garantia
+        if (currentOsList && currentOsList.length > 0) {
+            let famUrl = `/api/os/familias-garantia?data_inicio=${encodeURIComponent(dtIni)}&data_fim=${encodeURIComponent(dtFim)}`;
+            if (cliente) famUrl += `&cliente=${encodeURIComponent(cliente)}`;
+
+            let familiasGarantia = [];
+            let totalGarantiaPecas = 0.0;
+            let totalGarantiaValor = 0.0;
+
+            try {
+                const resFam = await fetch(famUrl);
+                if (resFam.ok) {
+                    const famJson = await resFam.json();
+                    familiasGarantia = famJson.familias || [];
+                    totalGarantiaPecas = famJson.total_pecas || 0.0;
+                    totalGarantiaValor = famJson.total_valor || 0.0;
+                }
+            } catch (errFam) {
+                console.warn('Não foi possível carregar resumo de famílias em garantia:', errFam);
+            }
+
+            const ordens = currentOsList;
+            const totalOS = ordens.length;
+            const totalFat = ordens.reduce((acc, o) => acc + (o.total || 0), 0);
+            const totalICMS = ordens.reduce((acc, o) => acc + (o.total_icms || 0), 0);
+            const totalProd = ordens.reduce((acc, o) => acc + (o.total_produtos || 0), 0);
+            const totalServ = ordens.reduce((acc, o) => acc + (o.total_servicos || 0), 0);
+            const garantiasOS = ordens.filter(o => o.is_garantia);
+            const totalGarOS = garantiasOS.length;
+            const totalGarValCalc = garantiasOS.reduce((acc, o) => acc + (o.total || 0), 0);
+            const percGar = totalOS > 0 ? Number(((totalGarOS / totalOS) * 100).toFixed(1)) : 0.0;
+
+            const reportData = {
+                periodo: {
+                    data_inicio: dtIni,
+                    data_fim: dtFim
+                },
+                filtros: {
+                    search: query,
+                    cliente: cliente,
+                    tipo_os: tipoOs
+                },
+                resumo: {
+                    total_os: totalOS,
+                    total_faturamento: totalFat,
+                    total_icms: totalICMS,
+                    total_produtos: totalProd,
+                    total_servicos: totalServ,
+                    total_garantia_os: totalGarOS,
+                    total_garantia_valor: totalGarantiaValor > 0 ? totalGarantiaValor : totalGarValCalc,
+                    total_garantia_pecas: totalGarantiaPecas,
+                    percentual_garantia: percGar
+                },
+                familias_garantia: familiasGarantia,
+                ordens_servico: ordens
+            };
+
+            printOSReport(reportData);
+            return;
+        }
+
+        // Se a tela não tinha ordens listadas ainda, busca o relatório completo do backend
+        let url = `/api/os/relatorio?limit=1500&tipo_os=${encodeURIComponent(tipoOs)}`;
         if (query) url += `&search=${encodeURIComponent(query)}`;
         if (cliente) url += `&cliente=${encodeURIComponent(cliente)}`;
         if (dtIni) url += `&data_inicio=${encodeURIComponent(dtIni)}`;
         if (dtFim) url += `&data_fim=${encodeURIComponent(dtFim)}`;
 
         const res = await fetch(url);
-        if (!res.ok) throw new Error('Erro ao carregar dados para o relatório de ordens de serviço.');
+        if (!res.ok) {
+            const errDetail = await res.text();
+            throw new Error(`Erro ao gerar relatório de OS (${res.status}): ${errDetail}`);
+        }
 
         const reportData = await res.json();
         if (!reportData.ordens_servico || reportData.ordens_servico.length === 0) {
@@ -3846,7 +3931,8 @@ async function handlePrintOSReportClick() {
 
         printOSReport(reportData);
     } catch (e) {
-        showToast(e.message, 'error');
+        console.error('Erro ao emitir relatório de OS:', e);
+        showToast(e.message || 'Erro ao carregar relatório.', 'error');
     } finally {
         if (btnPrintOSReport) {
             btnPrintOSReport.disabled = false;
@@ -3867,6 +3953,7 @@ if (osTipoFiltro) {
 
 // Initialize Application (Carrega apenas a configuração do sistema e selects, sem disparar buscas pesadas no banco)
 document.addEventListener('DOMContentLoaded', async () => {
+    initDefaultOSDates();
     try { await loadDatabaseSelector(); } catch (e) { console.error('Erro loadDatabaseSelector:', e); }
     try { await checkStatus(); } catch (e) { console.error('Erro checkStatus:', e); }
     try { await loadNaturezas(); } catch (e) { console.error('Erro loadNaturezas:', e); }
