@@ -3566,14 +3566,15 @@ function printOSReport(reportData) {
     const resumo = reportData.resumo || {};
     const familiasGarantia = reportData.familias_garantia || [];
 
-    // O relatório só deve apresentar as OS's com Operações Fiscais 5949 ou 6949
-    const isCfop5949ou6949 = (cfop) => {
+    // O relatório só deve apresentar as operações fiscais: 5.949-4, 5.949-3 e 6.949-4
+    const OP_GARANTIA_SET = new Set(['5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3']);
+    const isOpGarantia = (cfop) => {
         if (!cfop) return false;
-        const clean = String(cfop).replace(/\./g, '').trim();
-        return clean.startsWith('5949') || clean.startsWith('6949');
+        const clean = String(cfop).trim();
+        return OP_GARANTIA_SET.has(clean) || OP_GARANTIA_SET.has(clean.replace(/\./g, ''));
     };
 
-    const ordensServico = (reportData.ordens_servico || []).filter(o => isCfop5949ou6949(o.cod_naturezaoperacao));
+    const ordensServico = (reportData.ordens_servico || []).filter(o => isOpGarantia(o.cod_naturezaoperacao));
 
     const totalOSCalc = ordensServico.length;
     const totalFatCalc = ordensServico.reduce((acc, o) => acc + (o.total || 0), 0);
@@ -3657,7 +3658,7 @@ function printOSReport(reportData) {
                         <td style="text-align: center; white-space: nowrap; width: 75px;">${formatDateBR(os.data_emissao)}</td>
                         <td style="width: 180px;">
                             <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
-                                <span class="badge" style="border-color: #ea580c; color: #c2410c; font-weight: bold; background: #ffedd5; font-size: 6.8pt; padding: 1px 4px;">🛡️ 5949/6949</span>
+                                <span class="badge" style="border-color: #ea580c; color: #c2410c; font-weight: bold; background: #ffedd5; font-size: 6.8pt; padding: 1px 4px;">🛡️ GARANTIA</span>
                                 <span style="font-weight: 600; font-size: 7.2pt;">${escapeHtml(os.cod_naturezaoperacao || '')}</span>
                             </div>
                             <div style="font-size: 6.8pt; color: #64748b; line-height: 1.1; margin-top: 1px;">
@@ -3731,7 +3732,7 @@ function printOSReport(reportData) {
     } else {
         clientSectionsHtml = `
             <div style="text-align: center; color: #64748b; padding: 14px; border: 1px dashed #cbd5e1; border-radius: 4px;">
-                Nenhuma ordem de serviço com Operações Fiscais 5949 ou 6949 localizada para os parâmetros informados.
+                Nenhuma ordem de serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4 localizada para os parâmetros informados.
             </div>
         `;
     }
@@ -3746,10 +3747,10 @@ function printOSReport(reportData) {
                             Aspheric Analytics • Gestão de Laboratório Óptico & Ordens de Serviço
                         </div>
                         <h1 class="client-print-title" style="margin-top: 2px; font-size: 13.5pt;">
-                            RELATÓRIO DE ORDENS DE SERVIÇO EM GARANTIA (CFOP 5949 / 6949)
+                            RELATÓRIO DE ORDENS DE SERVIÇO EM GARANTIA (5.949-4 / 5.949-3 / 6.949-4)
                         </h1>
                         <div style="font-size: 8.5pt; color: #475569; margin-top: 2px;">
-                            <strong>Período:</strong> ${escapeHtml(periodText)} | <strong>Filtro Fiscal:</strong> Operações 5949 ou 6949 (Remessa / Troca em Garantia)
+                            <strong>Período:</strong> ${escapeHtml(periodText)} | <strong>Filtro Fiscal:</strong> Operações 5.949-4, 5.949-3 e 6.949-4 (Garantia / Troca / Revisão)
                             ${filtros.cliente ? ` | <strong>Cliente:</strong> ${escapeHtml(filtros.cliente)}` : ''}
                         </div>
                     </div>
@@ -3757,7 +3758,7 @@ function printOSReport(reportData) {
                         <div>Emissão: <strong>${emissaoStr}</strong></div>
                         <div>Clientes: <strong>${clientesList.length}</strong></div>
                         <div>Total OSs: <strong style="color: #dc2626;">${totalOSCalc}</strong></div>
-                        <div>Operações: <strong style="color: #7c3aed;">5949 / 6949</strong></div>
+                        <div>Operações: <strong style="color: #7c3aed;">5.949-4 / -3 / 6.949-4</strong></div>
                     </div>
                 </div>
 
@@ -3785,7 +3786,7 @@ function printOSReport(reportData) {
                     </div>
                     <div class="client-print-stat-box">
                         <span class="client-print-stat-label">Operações Fiscais</span>
-                        <span class="client-print-stat-value" style="color: #7c3aed; font-size: 10pt;">CFOP 5949 / 6949</span>
+                        <span class="client-print-stat-value" style="color: #7c3aed; font-size: 8.5pt;">5.949-4 / 5.949-3 / 6.949-4</span>
                     </div>
                 </div>
             </div>
@@ -3835,7 +3836,7 @@ function printOSReport(reportData) {
                         <span>👥</span>
                         <span>Ordens de Serviço Agrupadas por Cliente (${clientesList.length} clientes • ${totalOSCalc} OSs em garantia)</span>
                     </h2>
-                    <span style="font-size: 7.5pt; color: #64748b;">Agrupamento alfabético por cliente • CFOPs 5949 / 6949</span>
+                    <span style="font-size: 7.5pt; color: #64748b;">Agrupamento alfabético por cliente • CFOPs 5.949-4 / 5.949-3 / 6.949-4</span>
                 </div>
                 
                 ${clientSectionsHtml}
@@ -3843,7 +3844,7 @@ function printOSReport(reportData) {
                 <!-- Totais Consolidados Gerais no Encerramento -->
                 <div style="background-color: #0f172a; color: #ffffff; padding: 7px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 8pt; font-weight: bold; page-break-inside: avoid;">
                     <div>
-                        TOTAL GERAL CONSOLIDADO: ${clientesList.length} Clientes • ${totalOSCalc} Ordens de Serviço (Operações Fiscais 5949 / 6949)
+                        TOTAL GERAL CONSOLIDADO: ${clientesList.length} Clientes • ${totalOSCalc} Ordens de Serviço (Operações 5.949-4 / 5.949-3 / 6.949-4)
                     </div>
                     <div style="display: flex; gap: 16px; align-items: center;">
                         <span style="color: #6ee7b7;">Total ICMS: R$ ${formatMoney(totalICMSCalc)}</span>
@@ -3858,7 +3859,7 @@ function printOSReport(reportData) {
                     Documento emitido eletronicamente pelo módulo <strong>Aspheric Analytics</strong> em ${emissaoStr}.
                 </div>
                 <div style="font-style: italic;">
-                    Relatório Executivo de Ordens de Serviço em Garantia (CFOP 5949 / 6949)
+                    Relatório Executivo de Ordens de Serviço em Garantia (5.949-4 / 5.949-3 / 6.949-4)
                 </div>
             </div>
         </div>
@@ -3942,7 +3943,7 @@ async function handlePrintOSReportClick() {
 
         const reportData = await res.json();
         if (!reportData.ordens_servico || reportData.ordens_servico.length === 0) {
-            showToast('Nenhuma ordem de serviço com Operação Fiscal 5949 ou 6949 localizada para os parâmetros informados.', 'warning');
+            showToast('Nenhuma ordem de serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4 localizada para os parâmetros informados.', 'warning');
             return;
         }
 

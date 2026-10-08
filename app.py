@@ -359,7 +359,7 @@ def list_os(
                 ), t.TOTALICMS, 0) AS TOTALICMS,
                 s.VALORDESCONTO, t.DATAEMISSAO, p.IDENTIFICADOR,
                 CASE 
-                    WHEN (t.COD_NATUREZAOPERACAO LIKE '5.949%' OR t.COD_NATUREZAOPERACAO LIKE '6.949%' OR t.COD_NATUREZAOPERACAO LIKE '5949%' OR t.COD_NATUREZAOPERACAO LIKE '6949%') THEN 1 
+                    WHEN t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3') THEN 1 
                     ELSE 0 
                 END AS IS_GARANTIA
             FROM ORDEMSERVICO os
@@ -404,9 +404,9 @@ def list_os(
         if tipo_os and not hasattr(tipo_os, 'default'):
             tp_clean = str(tipo_os).strip().lower()
             if tp_clean == "garantia":
-                where_clauses.append("(t.COD_NATUREZAOPERACAO LIKE '5.949%' OR t.COD_NATUREZAOPERACAO LIKE '6.949%' OR t.COD_NATUREZAOPERACAO LIKE '5949%' OR t.COD_NATUREZAOPERACAO LIKE '6949%')")
+                where_clauses.append("t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')")
             elif tp_clean == "normal" or tp_clean == "normais":
-                where_clauses.append("(t.COD_NATUREZAOPERACAO NOT LIKE '5.949%' AND t.COD_NATUREZAOPERACAO NOT LIKE '6.949%' AND t.COD_NATUREZAOPERACAO NOT LIKE '5949%' AND t.COD_NATUREZAOPERACAO NOT LIKE '6949%')")
+                where_clauses.append("t.COD_NATUREZAOPERACAO NOT IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')")
 
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
@@ -504,7 +504,7 @@ def get_os_familias_garantia(
             LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
             LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
             WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
-              AND (t.COD_NATUREZAOPERACAO LIKE '5.949%' OR t.COD_NATUREZAOPERACAO LIKE '6.949%' OR t.COD_NATUREZAOPERACAO LIKE '5949%' OR t.COD_NATUREZAOPERACAO LIKE '6949%')
+              AND t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
               AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
         """
         params = [dt_ini, dt_fim]
@@ -593,7 +593,7 @@ def get_os_relatorio(
             LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
             WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
-              AND (t.COD_NATUREZAOPERACAO LIKE '5.949%' OR t.COD_NATUREZAOPERACAO LIKE '6.949%' OR t.COD_NATUREZAOPERACAO LIKE '5949%' OR t.COD_NATUREZAOPERACAO LIKE '6949%')
+              AND t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
         """
         
         params = [dt_ini, dt_fim]
@@ -694,7 +694,7 @@ def get_os_relatorio(
             LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
             LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
             WHERE t.DATAEMISSAO >= ? AND t.DATAEMISSAO <= ?
-              AND (t.COD_NATUREZAOPERACAO LIKE '5.949%' OR t.COD_NATUREZAOPERACAO LIKE '6.949%' OR t.COD_NATUREZAOPERACAO LIKE '5949%' OR t.COD_NATUREZAOPERACAO LIKE '6949%')
+              AND t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
               AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
         """
         garantia_params = [dt_ini, dt_fim]
