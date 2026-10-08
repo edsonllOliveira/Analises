@@ -359,9 +359,10 @@ def list_os(
                 ), t.TOTALICMS, 0) AS TOTALICMS,
                 s.VALORDESCONTO, t.DATAEMISSAO, p.IDENTIFICADOR,
                 CASE 
-                    WHEN t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3') THEN 1 
+                    WHEN t.OBSERVACAO CONTAINING 'GARANTIA' THEN 1 
                     ELSE 0 
-                END AS IS_GARANTIA
+                END AS IS_GARANTIA,
+                t.OBSERVACAO
             FROM ORDEMSERVICO os
             JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
             JOIN TRANSACAO t ON t.COD_TRANSACAO = s.COD_SAIDA AND t.COD_EMPRESA = os.COD_EMPRESA
@@ -404,9 +405,9 @@ def list_os(
         if tipo_os and not hasattr(tipo_os, 'default'):
             tp_clean = str(tipo_os).strip().lower()
             if tp_clean == "garantia":
-                where_clauses.append("t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')")
+                where_clauses.append("t.OBSERVACAO CONTAINING 'GARANTIA'")
             elif tp_clean == "normal" or tp_clean == "normais":
-                where_clauses.append("t.COD_NATUREZAOPERACAO NOT IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')")
+                where_clauses.append("(t.OBSERVACAO IS NULL OR NOT t.OBSERVACAO CONTAINING 'GARANTIA')")
 
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
@@ -451,6 +452,14 @@ def list_os(
             nome_clean = (r[4] or r[5] or '').strip() if (r[4] or r[5]) else f"Cliente {r[3]}"
             display_cliente = f"[{identificador}] {nome_clean}" if identificador else nome_clean
             is_garantia = bool(r[15]) if len(r) > 15 and r[15] is not None else False
+            
+            obs_raw = r[16] if len(r) > 16 else None
+            obs_clean = ""
+            if obs_raw:
+                try:
+                    obs_clean = obs_raw.read().strip() if hasattr(obs_raw, 'read') else str(obs_raw).strip()
+                except Exception:
+                    obs_clean = str(obs_raw).strip()
 
             result.append({
                 "cod_ordemservico": r[0],
@@ -462,6 +471,7 @@ def list_os(
                 "cod_naturezaoperacao": r[6].strip() if r[6] else "",
                 "natureza_descricao": r[7].strip() if r[7] else "",
                 "is_garantia": is_garantia,
+                "observacao": obs_clean,
                 "familias": fam_map.get(r[0], []),
                 "total": float(r[8]) if r[8] is not None else 0.0,
                 "total_produtos": float(r[9]) if r[9] is not None else 0.0,
@@ -503,6 +513,7 @@ def get_os_familias_garantia(
             LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
             LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
             WHERE t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
+              AND t.OBSERVACAO CONTAINING 'GARANTIA'
               AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
         """
         params = []
@@ -589,13 +600,15 @@ def get_os_relatorio(
                 t.TOTAL, t.TOTALPRODUTOS, t.TOTALSERVICOS,
                 COALESCE(t.TOTALICMS, 0) AS TOTALICMS,
                 s.VALORDESCONTO, t.DATAEMISSAO, p.IDENTIFICADOR,
-                1 AS IS_GARANTIA
+                1 AS IS_GARANTIA,
+                t.OBSERVACAO
             FROM ORDEMSERVICO os
             JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
             JOIN TRANSACAO t ON t.COD_TRANSACAO = s.COD_SAIDA AND t.COD_EMPRESA = os.COD_EMPRESA
             LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
             LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
             WHERE t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
+              AND t.OBSERVACAO CONTAINING 'GARANTIA'
         """
         
         params = []
@@ -668,6 +681,14 @@ def get_os_relatorio(
             display_cliente = f"[{identificador}] {nome_clean}" if identificador else nome_clean
             is_garantia = bool(r[15]) if len(r) > 15 and r[15] is not None else False
 
+            obs_raw = r[16] if len(r) > 16 else None
+            obs_clean = ""
+            if obs_raw:
+                try:
+                    obs_clean = obs_raw.read().strip() if hasattr(obs_raw, 'read') else str(obs_raw).strip()
+                except Exception:
+                    obs_clean = str(obs_raw).strip()
+
             result_os.append({
                 "cod_ordemservico": r[0],
                 "cod_empresa": r[1],
@@ -678,6 +699,7 @@ def get_os_relatorio(
                 "cod_naturezaoperacao": r[6].strip() if r[6] else "",
                 "natureza_descricao": r[7].strip() if r[7] else "",
                 "is_garantia": is_garantia,
+                "observacao": obs_clean,
                 "familias": fam_map.get(r[0], []),
                 "total": float(r[8]) if r[8] is not None else 0.0,
                 "total_produtos": float(r[9]) if r[9] is not None else 0.0,
@@ -703,6 +725,7 @@ def get_os_relatorio(
             LEFT JOIN PRODUTOFAMILIA pf1 ON pf1.COD_PRODUTOFAMILIA = ti.COD_PRODUTOFAMILIA
             LEFT JOIN PRODUTOFAMILIA pf2 ON pf2.COD_PRODUTOFAMILIA = prod.COD_PRODUTOFAMILIA
             WHERE t.COD_NATUREZAOPERACAO IN ('5.949-4', '5.949-3', '6.949-4', '5949-4', '5949-3', '6949-4', '6949-3')
+              AND t.OBSERVACAO CONTAINING 'GARANTIA'
               AND (ti.COD_PRODUTOFAMILIA IS NOT NULL OR prod.COD_PRODUTOFAMILIA IS NOT NULL)
         """
         garantia_params = []

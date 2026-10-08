@@ -490,6 +490,11 @@ function renderOSTable(list) {
                     <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px; max-width: 170px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(os.natureza_descricao || '')}">
                         ${escapeHtml(os.natureza_descricao || '')}
                     </div>
+                    ${os.observacao ? `
+                        <div style="font-size: 0.70rem; color: #ea580c; margin-top: 2px; max-width: 170px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Obs: ${escapeHtml(os.observacao)}">
+                            📝 ${escapeHtml(os.observacao)}
+                        </div>
+                    ` : ''}
                 </td>
                 <td>
                     <div style="display: flex; flex-direction: column; gap: 2px; max-width: 260px;">
@@ -3673,6 +3678,11 @@ function printOSReport(reportData) {
                             <div style="font-size: 6.8pt; color: #64748b; line-height: 1.1; margin-top: 1px;">
                                 ${escapeHtml(os.natureza_descricao || '')}
                             </div>
+                            ${os.observacao ? `
+                                <div style="font-size: 6.5pt; color: #9a3412; font-style: italic; margin-top: 2px; line-height: 1.15; word-break: break-word;">
+                                    <strong>Obs:</strong> ${escapeHtml(os.observacao)}
+                                </div>
+                            ` : ''}
                         </td>
                         <td style="font-size: 7.2pt; line-height: 1.25;">
                             <strong style="color: #9a3412;">${famsText}</strong>
@@ -3741,7 +3751,7 @@ function printOSReport(reportData) {
     } else {
         clientSectionsHtml = `
             <div style="text-align: center; color: #64748b; padding: 14px; border: 1px dashed #cbd5e1; border-radius: 4px;">
-                Nenhuma ordem de serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4 localizada para os parâmetros informados.
+                Nenhuma ordem de serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4 (com "GARANTIA" na observação) localizada para os parâmetros informados.
             </div>
         `;
     }
@@ -3759,7 +3769,7 @@ function printOSReport(reportData) {
                             RELATÓRIO DE ORDENS DE SERVIÇO EM GARANTIA (5.949-4 / 5.949-3 / 6.949-4)
                         </h1>
                         <div style="font-size: 8.5pt; color: #475569; margin-top: 2px;">
-                            <strong>Período:</strong> ${escapeHtml(periodText)} | <strong>Filtro Fiscal:</strong> Operações 5.949-4, 5.949-3 e 6.949-4 (Garantia / Troca / Revisão)
+                            <strong>Período:</strong> ${escapeHtml(periodText)} | <strong>Filtro Fiscal:</strong> Operações 5.949-4, 5.949-3 e 6.949-4 (com "GARANTIA" na observação)
                             ${filtros.cliente ? ` | <strong>Cliente:</strong> ${escapeHtml(filtros.cliente)}` : ''}
                         </div>
                     </div>
@@ -3935,7 +3945,7 @@ async function handlePrintOSReportClick() {
 
         const reportData = await res.json();
         if (!reportData.ordens_servico || reportData.ordens_servico.length === 0) {
-            showToast('Nenhuma ordem de serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4 localizada para os parâmetros informados.', 'warning');
+            showToast('Nenhuma ordem de serviço com Operações Fiscais 5.949-4, 5.949-3 ou 6.949-4 (e "GARANTIA" na observação) localizada para os parâmetros informados.', 'warning');
             return;
         }
 
