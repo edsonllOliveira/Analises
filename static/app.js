@@ -5311,3 +5311,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 
+
+// ============================================================
+// TEMA (Escuro padrão / Clássico claro)
+// ============================================================
+(function initThemeToggle() {
+    const btn = document.getElementById('btnThemeToggle');
+    const icon = document.getElementById('themeToggleIcon');
+    const label = document.getElementById('themeToggleLabel');
+    const root = document.documentElement;
+
+    function applyTheme(theme) {
+        if (theme === 'classico') {
+            root.setAttribute('data-theme', 'classico');
+            if (icon) icon.textContent = '🌙';
+            if (label) label.textContent = 'Tema Escuro';
+        } else {
+            root.removeAttribute('data-theme');
+            if (icon) icon.textContent = '☀️';
+            if (label) label.textContent = 'Tema Clássico';
+        }
+        try { localStorage.setItem('appTheme', theme); } catch (e) { /* ignore */ }
+    }
+
+    let saved = 'escuro';
+    try { saved = localStorage.getItem('appTheme') || 'escuro'; } catch (e) { /* ignore */ }
+    applyTheme(saved);
+
+    if (btn) {
+        btn.addEventListener('click', () => {
+            applyTheme(root.getAttribute('data-theme') === 'classico' ? 'escuro' : 'classico');
+        });
+    }
+})();

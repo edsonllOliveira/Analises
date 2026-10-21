@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -9,7 +9,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=1.5.1">
+    <script>try{var t=localStorage.getItem('appTheme');if(t==='classico')document.documentElement.setAttribute('data-theme','classico');}catch(e){}</script>
+    <link rel="stylesheet" href="style.css?v=1.6.1">
 </head>
 <body>
 
@@ -38,6 +39,10 @@
                     <span class="status-dot"></span>
                     <span id="dbStatusText">Verificando banco...</span>
                 </div>
+                <button id="btnThemeToggle" class="theme-toggle-btn no-print" title="Alternar entre tema escuro e tema clássico (claro)">
+                    <span id="themeToggleIcon">☀️</span>
+                    <span id="themeToggleLabel">Tema Clássico</span>
+                </button>
                 <button id="btnRefreshStatus" class="btn-icon" title="Atualizar Conexão com o Banco">🔄</button>
                 <button id="btnUpdateGit" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.65rem; font-size: 0.8rem; font-weight: 600;" title="Verificar e baixar atualizações do GitHub">
                     <span>⬇️</span>
@@ -1295,6 +1300,6 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.7.9"></script>
+    <script src="app.js?v=1.8.0"></script>
 </body>
 </html>
