@@ -9,13 +9,13 @@ echo.
 where python >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [ERRO] Python nao foi encontrado no sistema!
-    echo Instale o Python 3.8.10 (64-bit) marcando "Add Python 3.8 to PATH".
+    echo Certifique-se de que o Python esta instalado e adicionado ao PATH do Windows.
     echo.
     pause
     exit /b 1
 )
 
-echo [+] Executando servidor web...
+echo [+] Iniciando aplicacao e abrindo navegador...
 python run_server.py
 
 if %ERRORLEVEL% NEQ 0 (

@@ -69,6 +69,10 @@
                     <span class="tab-icon">🛒</span>
                     <span>Clientes que Compraram</span>
                 </button>
+                <button id="tabCampanhas" class="module-tab">
+                    <span class="tab-icon">🎯</span>
+                    <span>Relatório de Campanhas</span>
+                </button>
             </div>
         </div>
     </header>
@@ -812,6 +816,159 @@
                 </div>
             </section>
         </div>
+
+        <!-- Section Relatório de Campanhas -->
+        <div id="sectionCampanhas" class="tab-content hidden">
+            <!-- Filter & Action Card -->
+            <section class="card search-card no-print">
+                <div class="card-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <h2>🎯 Relatório de Ordens de Serviço por Campanha</h2>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                            Consulte todas as OS vinculadas a campanhas promocionais, separadas por cliente, com detalhamento de lentes, serviços, valores e descontos.
+                        </p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button id="btnExportCampanhasCsv" class="btn btn-secondary" style="padding: 0.6rem 1rem; font-weight: 600;" title="Exportar dados para planilha Excel / CSV">
+                            📥 Exportar CSV / Excel
+                        </button>
+                        <button id="btnPrintCampanhas" class="btn btn-success" style="padding: 0.6rem 1.25rem; font-weight: 600;" title="Imprimir este relatório">
+                            🖨️ Imprimir Relatório
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-form" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                    <div class="input-group" style="grid-column: span 2;">
+                        <label for="campanhaSelect">
+                            Campanha Promocional
+                        </label>
+                        <select id="campanhaSelect" class="form-control select-highlight">
+                            <option value="0">🎯 Todas as Campanhas Promocionais</option>
+                            <!-- Populated dynamically via JS -->
+                        </select>
+                    </div>
+
+                    <div class="input-group autocomplete-wrapper" style="position: relative;">
+                        <label for="campanhaSearchClientInput">
+                            Buscar por Cliente / Nome Fantasia
+                        </label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">👤</span>
+                            <input type="text" id="campanhaSearchClientInput" placeholder="Nome Fantasia, Razão Social ou Cód..." autocomplete="off">
+                            <button type="button" id="btnClearCampanhaClientSearch" class="btn-clear-input hidden" title="Limpar busca de cliente">✕</button>
+                        </div>
+                        <div id="campanhaClientAutocompleteList" class="autocomplete-dropdown hidden"></div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="campanhaDateInicio">Data Inicial (Opcional)</label>
+                        <input type="date" id="campanhaDateInicio" class="form-control">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="campanhaDateFim">Data Final (Opcional)</label>
+                        <input type="date" id="campanhaDateFim" class="form-control">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="campanhaLimitSelect">Limite de OSs</label>
+                        <select id="campanhaLimitSelect" class="form-control">
+                            <option value="1000" selected>1.000 OS (Recomendado)</option>
+                            <option value="500">500 OS</option>
+                            <option value="3000">3.000 OS</option>
+                            <option value="5000">5.000 OS</option>
+                            <option value="0">Sem Limite (Todas as OS)</option>
+                        </select>
+                    </div>
+
+                    <div class="button-group" style="align-self: flex-end; display: flex; gap: 0.5rem;">
+                        <button id="btnSearchCampanhas" class="btn btn-primary" style="flex: 2;">
+                            <span>🔍 Filtrar</span>
+                        </button>
+                        <button id="btnClearCampanhas" class="btn btn-secondary" style="flex: 1;" title="Limpar todos os campos">
+                            <span>Limpar</span>
+                        </button>
+                    </div>
+
+                    <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.25rem; padding-top: 0.5rem; border-top: 1px dashed var(--border-color, #334155);">
+                        <span style="font-size: 0.78rem; color: var(--text-secondary); font-weight: 600;">⚡ Atalhos de Período:</span>
+                        <button type="button" id="btnPeriodoSetOut" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📅 Setembro a Hoje (01/09 a 21/10/2026)</button>
+                        <button type="button" id="btnPeriodoEsteMes" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📅 Este Mês (Outubro/2026)</button>
+                        <button type="button" id="btnPeriodoMesAnterior" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📅 Mês Anterior (Setembro/2026)</button>
+                        <button type="button" id="btnPeriodoAnoAtual" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📅 Ano de 2026</button>
+                        <button type="button" id="btnPeriodoLimpar" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; color: #ef4444;">✕ Todo o Histórico (Sem Data)</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Bar -->
+            <div class="client-stats-bar no-print" id="campanhaStatsBar">
+                <div class="stat-box">
+                    <span class="stat-label">Clientes</span>
+                    <span id="statCampanhaClientes" class="stat-value text-blue">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Total de OS</span>
+                    <span id="statCampanhaOS" class="stat-value">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Lentes (R$)</span>
+                    <span id="statCampanhaLentes" class="stat-value text-green">R$ 0,00</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Serviços (R$)</span>
+                    <span id="statCampanhaServicos" class="stat-value text-purple">R$ 0,00</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Descontos Totais (R$)</span>
+                    <span id="statCampanhaDescontos" class="stat-value text-red">R$ 0,00</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Faturamento Total (R$)</span>
+                    <span id="statCampanhaTotalGeral" class="stat-value text-yellow font-bold">R$ 0,00</span>
+                </div>
+            </div>
+
+            <!-- Print Header -->
+            <div class="print-only print-header">
+                <div class="print-title">RELATÓRIO DE ORDENS DE SERVIÇO POR CAMPANHA</div>
+                <div class="print-meta">
+                    <span id="campanhaPrintDate">Emissão: --/--/----</span> | 
+                    <span id="campanhaPrintCampanha">Campanha: Todas</span> |
+                    <span id="campanhaPrintPeriodo">Período: Todo o Histórico</span>
+                </div>
+            </div>
+
+            <!-- Report Results Card -->
+            <section class="card result-card print-full-width">
+                <div class="card-header no-print flex-between" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+                    <div>
+                        <h2>📋 Clientes e Ordens de Serviço da Campanha</h2>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">
+                            💡 Dados agrupados por cliente. Clique no cabeçalho do cliente para expandir ou recolher suas OSs.
+                        </span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span id="campanhaResultBadge" class="badge">0 clientes</span>
+                        <button type="button" id="btnExpandAllCampanha" class="btn btn-secondary btn-sm" title="Expandir todos os clientes">
+                            ➕ Expandir Todos
+                        </button>
+                        <button type="button" id="btnCollapseAllCampanha" class="btn btn-secondary btn-sm" title="Recolher todos os clientes">
+                            ➖ Recolher Todos
+                        </button>
+                    </div>
+                </div>
+
+                <div id="campanhaReportContent" class="campanha-report-container">
+                    <div class="empty-state" style="padding: 3rem 1rem; text-align: center; color: var(--text-secondary);">
+                        <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🎯</div>
+                        <h3>Nenhum relatório gerado</h3>
+                        <p style="margin-top: 0.25rem;">Selecione a campanha e clique em <strong>Filtrar</strong> para gerar o relatório detalhado.</p>
+                    </div>
+                </div>
+            </section>
+        </div>
     </main>
 
     <!-- Edit Modal Workspace -->
@@ -1130,9 +1287,14 @@
         <!-- Rendered dynamically upon clicking print OS report -->
     </div>
 
+    <!-- Print Template for Campanhas (Relatório Profissional de OSs por Campanha Promocional) -->
+    <div id="printCampanhaReportContainer" class="print-only">
+        <!-- Rendered dynamically upon clicking print campanhas report -->
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.7.8"></script>
+    <script src="app.js?v=1.7.9"></script>
 </body>
 </html>

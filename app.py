@@ -41,6 +41,9 @@ def sanitize_date_param(val: Optional[str]) -> Optional[str]:
             return s
             
     if 1 <= m <= 12 and 1900 <= y <= 2100:
+        # Corrige erro comum de digitação de ano no date picker (ex: 2006 -> 2026, 2005 -> 2025)
+        if 2000 <= y <= 2009:
+            y = 2020 + (y % 10)
         max_d = calendar.monthrange(y, m)[1]
         clamped_d = min(max(1, d), max_d)
         return f"{y:04d}-{m:02d}-{clamped_d:02d}"
@@ -836,6 +839,374 @@ def get_os_relatorio(
         }
     except Exception as e:
         logger.error(f"Erro ao gerar relatório de OS: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/campanhas")
+def get_campanhas():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COD_SAIDAMOTIVO, DESCRICAO, ATIVO
+            FROM SAIDAMOTIVO
+            WHERE TIPO = 2
+            ORDER BY CASE WHEN ATIVO = 'T' THEN 0 ELSE 1 END, DESCRICAO ASC
+        """)
+        rows = cur.fetchall()
+        conn.close()
+
+        campanhas = []
+        for r in rows:
+            campanhas.append({
+                "cod_campanha": r[0],
+                "descricao": r[1].strip() if r[1] else "",
+                "ativo": (r[2] == 'T') if r[2] else False
+            })
+        return {"campanhas": campanhas}
+    except Exception as e:
+        logger.error(f"Erro ao listar campanhas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/campanhas/relatorio")
+def get_campanhas_relatorio(
+    cod_campanha: Optional[int] = Query(None, description="Código da campanha selecionada"),
+    data_inicio: Optional[str] = Query(None, description="Data inicial YYYY-MM-DD"),
+    data_fim: Optional[str] = Query(None, description="Data final YYYY-MM-DD"),
+    cliente: Optional[str] = Query(None, description="Nome Fantasia, Razão Social ou código do cliente"),
+    limit: int = Query(0, ge=0, description="0 = sem limite seguro")
+):
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
+
+        # Se data inicial for maior que a data final (datas invertidas ou erro), troca a ordem automaticamente
+        if dt_ini and dt_fim and dt_ini > dt_fim:
+            dt_ini, dt_fim = dt_fim, dt_ini
+
+        limit_val = int(limit) if limit is not None and not hasattr(limit, 'default') and int(limit) > 0 else 0
+        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+
+        sql = f"""
+            SELECT {first_clause}
+                os.COD_ORDEMSERVICO,
+                os.NUMEROORDEMSERVICO,
+                os.COD_EMPRESA,
+                s.COD_SAIDAMOTIVO,
+                CAST(sm.DESCRICAO AS VARCHAR(100)) AS CAMPANHA_NOME,
+                t.DATAEMISSAO,
+                s.DATAEXPEDICAO,
+                t.COD_PESSOA,
+                COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || t.COD_PESSOA) AS CLIENTE_NOME_FANTASIA,
+                CAST(p.RAZAOSOCIAL AS VARCHAR(250)) AS CLIENTE_RAZAO_SOCIAL,
+                CAST(p.CNPJ AS VARCHAR(25)) AS CNPJ,
+                CAST(p.CPF AS VARCHAR(25)) AS CPF,
+                CAST(p.CIDADE AS VARCHAR(60)) AS CIDADE,
+                CAST(p.COD_UF AS VARCHAR(5)) AS UF,
+                p.IDENTIFICADOR,
+                t.TOTAL,
+                t.TOTALPRODUTOS,
+                t.TOTALSERVICOS,
+                COALESCE(s.VALORDESCONTO, 0) AS DESCONTO_OS,
+                CAST(sit.DESCRICAO AS VARCHAR(60)) AS SITUACAO_OS,
+                CAST(t.OBSERVACAO AS VARCHAR(500)) AS OBSERVACAO
+            FROM ORDEMSERVICO os
+            JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
+            JOIN SAIDAMOTIVO sm ON sm.COD_SAIDAMOTIVO = s.COD_SAIDAMOTIVO AND sm.TIPO = 2
+            JOIN TRANSACAO t ON t.COD_TRANSACAO = s.COD_SAIDA AND t.COD_EMPRESA = os.COD_EMPRESA
+            LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
+            LEFT JOIN ORDEMSERVICOSITUACAO sit ON sit.COD_ORDEMSERVICOSITUACAO = os.COD_ORDEMSERVICOSITUACAO
+            WHERE 1=1
+        """
+
+        params = []
+        if cod_campanha is not None and not hasattr(cod_campanha, 'default') and int(cod_campanha) > 0:
+            sql += " AND s.COD_SAIDAMOTIVO = ?"
+            params.append(int(cod_campanha))
+
+        if dt_ini:
+            sql += " AND t.DATAEMISSAO >= ?"
+            params.append(dt_ini)
+        if dt_fim:
+            sql += " AND t.DATAEMISSAO <= ?"
+            params.append(dt_fim)
+
+        client_clean = str(cliente).strip() if cliente and not hasattr(cliente, 'default') and str(cliente).strip() else None
+        if client_clean:
+            if client_clean.isdigit():
+                sql += " AND (p.COD_PESSOA = ? OR p.IDENTIFICADOR = ? OR UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))"
+                c_param = f"%{client_clean}%"
+                params.extend([int(client_clean), int(client_clean), c_param, c_param])
+            else:
+                sql += " AND (UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))"
+                c_param = f"%{client_clean}%"
+                params.extend([c_param, c_param])
+
+        sql += " ORDER BY p.NOME ASC, os.COD_ORDEMSERVICO DESC"
+
+        cur.execute(sql, tuple(params))
+        header_rows = cur.fetchall()
+
+        if not header_rows:
+            conn.close()
+            return {
+                "filtros": {
+                    "cod_campanha": cod_campanha,
+                    "data_inicio": dt_ini,
+                    "data_fim": dt_fim,
+                    "cliente": client_clean
+                },
+                "totais": {
+                    "total_clientes": 0,
+                    "total_os": 0,
+                    "total_lentes_qtd": 0,
+                    "total_lentes_valor": 0.0,
+                    "total_lentes_desconto": 0.0,
+                    "total_servicos_qtd": 0,
+                    "total_servicos_valor": 0.0,
+                    "total_servicos_desconto": 0.0,
+                    "total_desconto_os": 0.0,
+                    "total_desconto_geral": 0.0,
+                    "total_geral": 0.0
+                },
+                "clientes": []
+            }
+
+        os_ids = [r[0] for r in header_rows]
+        items_by_os = {}
+
+        chunk_size = 400
+        for i in range(0, len(os_ids), chunk_size):
+            chunk = os_ids[i:i + chunk_size]
+            ph = ','.join(['?'] * len(chunk))
+            cur.execute(f"""
+                SELECT 
+                    ti.COD_TRANSACAO,
+                    ti.COD_TRANSACAOITEM,
+                    ti.COD_ITEM,
+                    CAST(ti.DESCRICAO AS VARCHAR(250)),
+                    ti.QUANTIDADE,
+                    ti.VALORORIGINAL,
+                    ti.VALORUNITARIO,
+                    ti.TOTAL,
+                    ti.VALORDESCONTO,
+                    osi.PERCENTUALDESCONTO,
+                    i.COD_ITEMTIPO,
+                    CAST(pf.DESCRICAO AS VARCHAR(100)) AS FAMILIA_DESCRICAO
+                FROM TRANSACAO_ITEM ti
+                LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
+                LEFT JOIN ORDEMSERVICO_ITEM osi ON osi.COD_TRANSACAO = ti.COD_TRANSACAO AND osi.COD_TRANSACAOITEM = ti.COD_TRANSACAOITEM AND osi.COD_EMPRESA = ti.COD_EMPRESA
+                LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
+                LEFT JOIN PRODUTOFAMILIA pf ON pf.COD_PRODUTOFAMILIA = COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA)
+                WHERE ti.COD_TRANSACAO IN ({ph})
+                ORDER BY ti.COD_TRANSACAO, i.COD_ITEMTIPO, ti.COD_TRANSACAOITEM
+            """, tuple(chunk))
+
+            for ir in cur.fetchall():
+                cod_transacao = ir[0]
+                cod_item = str(ir[2]).strip() if ir[2] else ""
+                desc_item = str(ir[3]).strip() if ir[3] else ""
+                qtd = float(ir[4]) if ir[4] is not None else 0.0
+                v_orig = float(ir[5]) if ir[5] is not None else 0.0
+                v_unit = float(ir[6]) if ir[6] is not None else 0.0
+                tot = float(ir[7]) if ir[7] is not None else 0.0
+                v_desc_item = float(ir[8]) if ir[8] is not None else 0.0
+                p_desc_osi = float(ir[9]) if ir[9] is not None else 0.0
+                item_tipo = ir[10] if ir[10] is not None else 1
+                fam_desc = str(ir[11]).strip() if ir[11] else ""
+
+                # Desconto calculation
+                v_tabela_total = v_orig * qtd if v_orig > 0 else (tot + v_desc_item)
+                if v_orig > v_unit and v_orig > 0:
+                    v_desc_tot = ((v_orig - v_unit) * qtd) + v_desc_item
+                elif v_desc_item > 0:
+                    v_desc_tot = v_desc_item
+                elif p_desc_osi > 0:
+                    v_desc_tot = (tot / (1.0 - (p_desc_osi / 100.0))) - tot if p_desc_osi < 100 else 0.0
+                else:
+                    v_desc_tot = 0.0
+
+                v_desc_unit = (v_desc_tot / qtd) if qtd > 0 else 0.0
+                if v_tabela_total > 0:
+                    p_desc = round((v_desc_tot / v_tabela_total) * 100.0, 1)
+                else:
+                    p_desc = round(p_desc_osi, 1) if p_desc_osi > 0 else 0.0
+
+                item_obj = {
+                    "cod_item": cod_item,
+                    "descricao": desc_item,
+                    "quantidade": qtd,
+                    "valor_original": round(v_orig, 2),
+                    "desconto_unitario": round(v_desc_unit, 2),
+                    "desconto_total": round(v_desc_tot, 2),
+                    "perc_desconto": p_desc,
+                    "valor_unitario": round(v_unit, 2),
+                    "total": round(tot, 2),
+                    "familia": fam_desc,
+                    "is_servico": (item_tipo == 2)
+                }
+
+                items_by_os.setdefault(cod_transacao, []).append(item_obj)
+
+        conn.close()
+
+        # Group by Client
+        clients_map = {}
+        tot_geral_lentes_qtd = 0.0
+        tot_geral_lentes_valor = 0.0
+        tot_geral_lentes_desc = 0.0
+        tot_geral_servicos_qtd = 0.0
+        tot_geral_servicos_valor = 0.0
+        tot_geral_servicos_desc = 0.0
+        tot_geral_desconto_os = 0.0
+        tot_geral_faturado = 0.0
+
+        for r in header_rows:
+            cod_os = r[0]
+            num_os = r[1]
+            cod_empresa = r[2]
+            cod_motivo = r[3]
+            nome_campanha = r[4].strip() if r[4] else "Campanha"
+            dt_emissao = str(r[5]) if r[5] else None
+            dt_expedicao = str(r[6]) if r[6] else None
+            cod_pessoa = r[7] or 0
+            nome_fantasia = r[8].strip() if r[8] else f"Cliente {cod_pessoa}"
+            razao_social = r[9].strip() if r[9] else ""
+            cnpj = r[10].strip() if r[10] else ""
+            cpf = r[11].strip() if r[11] else ""
+            cidade = r[12].strip() if r[12] else ""
+            uf = r[13].strip() if r[13] else ""
+            identificador = r[14] or cod_pessoa
+            tot_os = float(r[15]) if r[15] is not None else 0.0
+            tot_produtos = float(r[16]) if r[16] is not None else 0.0
+            tot_servicos = float(r[17]) if r[17] is not None else 0.0
+            desc_os = float(r[18]) if r[18] is not None else 0.0
+            situacao = r[19].strip() if r[19] else ""
+            obs = r[20].strip() if r[20] else ""
+
+            os_items = items_by_os.get(cod_os, [])
+            lentes = [it for it in os_items if not it["is_servico"]]
+            servicos = [it for it in os_items if it["is_servico"]]
+
+            os_lentes_qtd = sum(it["quantidade"] for it in lentes)
+            os_lentes_val = sum(it["total"] for it in lentes)
+            os_lentes_desc = sum(it["desconto_total"] for it in lentes)
+
+            os_servicos_qtd = sum(it["quantidade"] for it in servicos)
+            os_servicos_val = sum(it["total"] for it in servicos)
+            os_servicos_desc = sum(it["desconto_total"] for it in servicos)
+
+            os_desc_total = os_lentes_desc + os_servicos_desc + desc_os
+
+            client_key = cod_pessoa
+            if client_key not in clients_map:
+                clients_map[client_key] = {
+                    "cod_pessoa": cod_pessoa,
+                    "identificador": identificador,
+                    "nome_fantasia": nome_fantasia,
+                    "razao_social": razao_social,
+                    "cnpj_cpf": cnpj or cpf or "",
+                    "cidade": cidade,
+                    "uf": uf,
+                    "totais": {
+                        "total_os": 0,
+                        "total_lentes_qtd": 0.0,
+                        "total_lentes_valor": 0.0,
+                        "total_lentes_desconto": 0.0,
+                        "total_servicos_qtd": 0.0,
+                        "total_servicos_valor": 0.0,
+                        "total_servicos_desconto": 0.0,
+                        "total_desconto_os": 0.0,
+                        "total_desconto_geral": 0.0,
+                        "total_geral": 0.0
+                    },
+                    "ordens_servico": []
+                }
+
+            c_totals = clients_map[client_key]["totais"]
+            c_totals["total_os"] += 1
+            c_totals["total_lentes_qtd"] += os_lentes_qtd
+            c_totals["total_lentes_valor"] += os_lentes_val
+            c_totals["total_lentes_desconto"] += os_lentes_desc
+            c_totals["total_servicos_qtd"] += os_servicos_qtd
+            c_totals["total_servicos_valor"] += os_servicos_val
+            c_totals["total_servicos_desconto"] += os_servicos_desc
+            c_totals["total_desconto_os"] += desc_os
+            c_totals["total_desconto_geral"] += os_desc_total
+            c_totals["total_geral"] += tot_os
+
+            tot_geral_lentes_qtd += os_lentes_qtd
+            tot_geral_lentes_valor += os_lentes_val
+            tot_geral_lentes_desc += os_lentes_desc
+            tot_geral_servicos_qtd += os_servicos_qtd
+            tot_geral_servicos_valor += os_servicos_val
+            tot_geral_servicos_desc += os_servicos_desc
+            tot_geral_desconto_os += desc_os
+            tot_geral_faturado += tot_os
+
+            clients_map[client_key]["ordens_servico"].append({
+                "cod_ordemservico": cod_os,
+                "numero_os": num_os,
+                "cod_empresa": cod_empresa,
+                "data_emissao": dt_emissao,
+                "data_expedicao": dt_expedicao,
+                "cod_campanha": cod_motivo,
+                "campanha_nome": nome_campanha,
+                "situacao_os": situacao,
+                "observacao": obs,
+                "total_produtos": round(tot_produtos, 2),
+                "total_servicos": round(tot_servicos, 2),
+                "desconto_os": round(desc_os, 2),
+                "total_geral": round(tot_os, 2),
+                "desconto_total": round(os_desc_total, 2),
+                "lentes": lentes,
+                "servicos": servicos
+            })
+
+        for c in clients_map.values():
+            ct = c["totais"]
+            ct["total_lentes_qtd"] = round(ct["total_lentes_qtd"], 2)
+            ct["total_lentes_valor"] = round(ct["total_lentes_valor"], 2)
+            ct["total_lentes_desconto"] = round(ct["total_lentes_desconto"], 2)
+            ct["total_servicos_qtd"] = round(ct["total_servicos_qtd"], 2)
+            ct["total_servicos_valor"] = round(ct["total_servicos_valor"], 2)
+            ct["total_servicos_desconto"] = round(ct["total_servicos_desconto"], 2)
+            ct["total_desconto_os"] = round(ct["total_desconto_os"], 2)
+            ct["total_desconto_geral"] = round(ct["total_desconto_geral"], 2)
+            ct["total_geral"] = round(ct["total_geral"], 2)
+
+        clientes_list = sorted(clients_map.values(), key=lambda x: x["nome_fantasia"].upper())
+
+        tot_geral_desc = tot_geral_lentes_desc + tot_geral_servicos_desc + tot_geral_desconto_os
+
+        return {
+            "filtros": {
+                "cod_campanha": cod_campanha,
+                "data_inicio": dt_ini,
+                "data_fim": dt_fim,
+                "cliente": client_clean
+            },
+            "totais": {
+                "total_clientes": len(clientes_list),
+                "total_os": len(header_rows),
+                "total_lentes_qtd": round(tot_geral_lentes_qtd, 2),
+                "total_lentes_valor": round(tot_geral_lentes_valor, 2),
+                "total_lentes_desconto": round(tot_geral_lentes_desc, 2),
+                "total_servicos_qtd": round(tot_geral_servicos_qtd, 2),
+                "total_servicos_valor": round(tot_geral_servicos_valor, 2),
+                "total_servicos_desconto": round(tot_geral_servicos_desc, 2),
+                "total_desconto_os": round(tot_geral_desconto_os, 2),
+                "total_desconto_geral": round(tot_geral_desc, 2),
+                "total_geral": round(tot_geral_faturado, 2)
+            },
+            "clientes": clientes_list
+        }
+    except Exception as e:
+        logger.error(f"Erro ao gerar relatório de campanhas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

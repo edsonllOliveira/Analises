@@ -1063,17 +1063,19 @@ const tabClientes = document.getElementById('tabClientes');
 const tabProdutos = document.getElementById('tabProdutos');
 const tabTopClientes = document.getElementById('tabTopClientes');
 const tabClientesFamilia = document.getElementById('tabClientesFamilia');
+const tabCampanhas = document.getElementById('tabCampanhas');
 const sectionOS = document.getElementById('sectionOS');
 const sectionClientes = document.getElementById('sectionClientes');
 const sectionProdutos = document.getElementById('sectionProdutos');
 const sectionTopClientes = document.getElementById('sectionTopClientes');
 const sectionClientesFamilia = document.getElementById('sectionClientesFamilia');
+const sectionCampanhas = document.getElementById('sectionCampanhas');
 
 function switchActiveTab(activeBtn, activeSection) {
-    [tabOS, tabClientes, tabProdutos, tabTopClientes, tabClientesFamilia].forEach(tab => {
+    [tabOS, tabClientes, tabProdutos, tabTopClientes, tabClientesFamilia, tabCampanhas].forEach(tab => {
         if (tab) tab.classList.remove('active');
     });
-    [sectionOS, sectionClientes, sectionProdutos, sectionTopClientes, sectionClientesFamilia].forEach(sec => {
+    [sectionOS, sectionClientes, sectionProdutos, sectionTopClientes, sectionClientesFamilia, sectionCampanhas].forEach(sec => {
         if (sec) sec.classList.add('hidden');
     });
 
@@ -1119,6 +1121,15 @@ if (tabClientesFamilia) {
         switchActiveTab(tabClientesFamilia, sectionClientesFamilia);
         if (containerFamiliaTiposOpCheckboxes && !containerFamiliaTiposOpCheckboxes.children.length) {
             loadFamiliaTiposOperacao();
+        }
+    });
+}
+
+if (tabCampanhas) {
+    tabCampanhas.addEventListener('click', () => {
+        switchActiveTab(tabCampanhas, sectionCampanhas);
+        if (campanhaSelect && campanhaSelect.options.length <= 1) {
+            loadCampanhasList();
         }
     });
 }
@@ -4127,6 +4138,1166 @@ if (osTipoFiltro) {
     });
 }
 
+// ============================================================
+// RELATÓRIO DE ORDENS DE SERVIÇO POR CAMPANHA
+// ============================================================
+const campanhaSelect = document.getElementById('campanhaSelect');
+const campanhaSearchClientInput = document.getElementById('campanhaSearchClientInput');
+const btnClearCampanhaClientSearch = document.getElementById('btnClearCampanhaClientSearch');
+const campanhaClientAutocompleteList = document.getElementById('campanhaClientAutocompleteList');
+const campanhaDateInicio = document.getElementById('campanhaDateInicio');
+const campanhaDateFim = document.getElementById('campanhaDateFim');
+const campanhaLimitSelect = document.getElementById('campanhaLimitSelect');
+const btnSearchCampanhas = document.getElementById('btnSearchCampanhas');
+const btnClearCampanhas = document.getElementById('btnClearCampanhas');
+const btnExpandAllCampanha = document.getElementById('btnExpandAllCampanha');
+const btnCollapseAllCampanha = document.getElementById('btnCollapseAllCampanha');
+const btnPrintCampanhas = document.getElementById('btnPrintCampanhas');
+const btnExportCampanhasCsv = document.getElementById('btnExportCampanhasCsv');
+const campanhaReportContent = document.getElementById('campanhaReportContent');
+const campanhaResultBadge = document.getElementById('campanhaResultBadge');
+
+// Stat Boxes
+const statCampanhaClientes = document.getElementById('statCampanhaClientes');
+const statCampanhaOS = document.getElementById('statCampanhaOS');
+const statCampanhaLentes = document.getElementById('statCampanhaLentes');
+const statCampanhaServicos = document.getElementById('statCampanhaServicos');
+const statCampanhaDescontos = document.getElementById('statCampanhaDescontos');
+const statCampanhaTotalGeral = document.getElementById('statCampanhaTotalGeral');
+
+// Print Elements
+const campanhaPrintDate = document.getElementById('campanhaPrintDate');
+const campanhaPrintCampanha = document.getElementById('campanhaPrintCampanha');
+const campanhaPrintPeriodo = document.getElementById('campanhaPrintPeriodo');
+const printCampanhaReportContainer = document.getElementById('printCampanhaReportContainer');
+
+let currentCampanhasReportData = null;
+let campanhaSelectedClientCod = null;
+let campanhaAutocompleteTimer = null;
+let activeCampanhaAutocompleteIndex = -1;
+
+// Carregar lista de campanhas promocionais (SAIDAMOTIVO TIPO = 2)
+async function loadCampanhasList() {
+    if (!campanhaSelect) return;
+    try {
+        const res = await fetch('/api/campanhas');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const list = data.campanhas || [];
+
+        const currentVal = campanhaSelect.value;
+        campanhaSelect.innerHTML = '<option value="0">🎯 Todas as Campanhas Promocionais</option>';
+
+        const ativas = list.filter(c => c.ativo);
+        const inativas = list.filter(c => !c.ativo);
+
+        if (ativas.length > 0) {
+            const optgroupAtivas = document.createElement('optgroup');
+            optgroupAtivas.label = '── Campanhas Ativas ──';
+            ativas.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.cod_campanha;
+                opt.textContent = `🟢 ${c.descricao}`;
+                optgroupAtivas.appendChild(opt);
+            });
+            campanhaSelect.appendChild(optgroupAtivas);
+        }
+
+        if (inativas.length > 0) {
+            const optgroupInativas = document.createElement('optgroup');
+            optgroupInativas.label = '── Campanhas Anteriores / Inativas ──';
+            inativas.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.cod_campanha;
+                opt.textContent = `⚪ ${c.descricao}`;
+                optgroupInativas.appendChild(opt);
+            });
+            campanhaSelect.appendChild(optgroupInativas);
+        }
+
+        if (currentVal && currentVal !== '0') {
+            campanhaSelect.value = currentVal;
+        }
+    } catch (e) {
+        console.error('Erro ao carregar lista de campanhas:', e);
+    }
+}
+
+// Client Autocomplete in Campaign Tab
+if (campanhaSearchClientInput && campanhaClientAutocompleteList) {
+    campanhaSearchClientInput.addEventListener('input', (e) => {
+        const val = e.target.value.trim();
+        campanhaSelectedClientCod = null;
+
+        if (btnClearCampanhaClientSearch) {
+            if (val) {
+                btnClearCampanhaClientSearch.classList.remove('hidden');
+            } else {
+                btnClearCampanhaClientSearch.classList.add('hidden');
+            }
+        }
+
+        if (campanhaAutocompleteTimer) clearTimeout(campanhaAutocompleteTimer);
+
+        if (val.length < 2) {
+            campanhaClientAutocompleteList.classList.add('hidden');
+            campanhaClientAutocompleteList.innerHTML = '';
+            return;
+        }
+
+        campanhaAutocompleteTimer = setTimeout(() => {
+            fetchCampanhaClientAutocomplete(val);
+        }, 250);
+    });
+
+    campanhaSearchClientInput.addEventListener('keydown', (e) => {
+        const items = campanhaClientAutocompleteList.querySelectorAll('.autocomplete-item');
+        if (campanhaClientAutocompleteList.classList.contains('hidden') || items.length === 0) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchCampanhasReport();
+            }
+            return;
+        }
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeCampanhaAutocompleteIndex = (activeCampanhaAutocompleteIndex + 1) % items.length;
+            highlightCampanhaAutocompleteItem(items);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeCampanhaAutocompleteIndex = (activeCampanhaAutocompleteIndex - 1 + items.length) % items.length;
+            highlightCampanhaAutocompleteItem(items);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeCampanhaAutocompleteIndex >= 0 && items[activeCampanhaAutocompleteIndex]) {
+                items[activeCampanhaAutocompleteIndex].click();
+            } else {
+                campanhaClientAutocompleteList.classList.add('hidden');
+                searchCampanhasReport();
+            }
+        } else if (e.key === 'Escape') {
+            campanhaClientAutocompleteList.classList.add('hidden');
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#sectionCampanhas .autocomplete-wrapper')) {
+            campanhaClientAutocompleteList.classList.add('hidden');
+        }
+    });
+}
+
+if (btnClearCampanhaClientSearch) {
+    btnClearCampanhaClientSearch.addEventListener('click', () => {
+        if (campanhaSearchClientInput) campanhaSearchClientInput.value = '';
+        campanhaSelectedClientCod = null;
+        btnClearCampanhaClientSearch.classList.add('hidden');
+        if (campanhaClientAutocompleteList) {
+            campanhaClientAutocompleteList.classList.add('hidden');
+            campanhaClientAutocompleteList.innerHTML = '';
+        }
+    });
+}
+
+function highlightCampanhaAutocompleteItem(items) {
+    items.forEach((item, index) => {
+        if (index === activeCampanhaAutocompleteIndex) {
+            item.classList.add('selected');
+            item.scrollIntoView({ block: 'nearest' });
+        } else {
+            item.classList.remove('selected');
+        }
+    });
+}
+
+async function fetchCampanhaClientAutocomplete(query) {
+    try {
+        const res = await fetch(`/api/clientes/autocomplete?q=${encodeURIComponent(query)}&limit=15`);
+        if (!res.ok) return;
+        const list = await res.json();
+        renderCampanhaClientAutocompleteList(list);
+    } catch (e) {
+        console.error('Erro autocomplete cliente campanha:', e);
+    }
+}
+
+function renderCampanhaClientAutocompleteList(list) {
+    if (!campanhaClientAutocompleteList) return;
+    activeCampanhaAutocompleteIndex = -1;
+
+    if (!list || list.length === 0) {
+        campanhaClientAutocompleteList.innerHTML = '<div class="autocomplete-no-results">Nenhum cliente localizado</div>';
+        campanhaClientAutocompleteList.classList.remove('hidden');
+        return;
+    }
+
+    campanhaClientAutocompleteList.innerHTML = list.map((c) => {
+        const idCode = c.identificador || c.cod_pessoa;
+        return `
+            <div class="autocomplete-item" data-cod="${c.cod_pessoa}" data-ident="${idCode}" data-name="${escapeHtml(c.display_name)}">
+                <span class="item-title">Cód: ${idCode} - ${escapeHtml(c.display_name)}</span>
+                <span class="item-sub">${c.doc ? `Doc: ${escapeHtml(c.doc)} • ` : ''}${c.cidade ? escapeHtml(c.cidade) : ''}</span>
+            </div>
+        `;
+    }).join('');
+
+    campanhaClientAutocompleteList.classList.remove('hidden');
+
+    campanhaClientAutocompleteList.querySelectorAll('.autocomplete-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const cod = el.getAttribute('data-cod');
+            const name = el.getAttribute('data-name');
+
+            campanhaSelectedClientCod = cod;
+            if (campanhaSearchClientInput) {
+                campanhaSearchClientInput.value = `${name}`;
+            }
+            if (btnClearCampanhaClientSearch) {
+                btnClearCampanhaClientSearch.classList.remove('hidden');
+            }
+            campanhaClientAutocompleteList.classList.add('hidden');
+        });
+    });
+}
+
+// Gerar / Buscar Relatório de Campanhas
+async function searchCampanhasReport() {
+    if (!campanhaReportContent) return;
+
+    const codCampanha = campanhaSelect ? parseInt(campanhaSelect.value, 10) || 0 : 0;
+    let dtInicio = campanhaDateInicio ? (campanhaDateInicio.value || '').trim() : '';
+    let dtFim = campanhaDateFim ? (campanhaDateFim.value || '').trim() : '';
+    const limit = campanhaLimitSelect ? parseInt(campanhaLimitSelect.value, 10) || 0 : 1000;
+
+    // Correção automática de digitação de ano no browser (ex: se digitou 2006 em vez de 2026)
+    if (dtInicio && /^200\d-\d{2}-\d{2}$/.test(dtInicio)) {
+        dtInicio = dtInicio.replace(/^200(\d)/, '202$1');
+        if (campanhaDateInicio) campanhaDateInicio.value = dtInicio;
+    }
+    if (dtFim && /^200\d-\d{2}-\d{2}$/.test(dtFim)) {
+        dtFim = dtFim.replace(/^200(\d)/, '202$1');
+        if (campanhaDateFim) campanhaDateFim.value = dtFim;
+    }
+
+    // Se as datas foram invertidas (data_inicio maior que data_fim), ajusta automaticamente
+    if (dtInicio && dtFim && dtInicio > dtFim) {
+        const temp = dtInicio;
+        dtInicio = dtFim;
+        dtFim = temp;
+        if (campanhaDateInicio) campanhaDateInicio.value = dtInicio;
+        if (campanhaDateFim) campanhaDateFim.value = dtFim;
+    }
+
+    let clienteQuery = '';
+    if (campanhaSelectedClientCod) {
+        clienteQuery = String(campanhaSelectedClientCod);
+    } else if (campanhaSearchClientInput && campanhaSearchClientInput.value.trim()) {
+        clienteQuery = campanhaSearchClientInput.value.trim();
+    }
+
+    // Set Print Meta Information
+    const nowBR = new Date().toLocaleDateString('pt-BR');
+    if (campanhaPrintDate) campanhaPrintDate.textContent = `Emissão: ${nowBR}`;
+    if (campanhaPrintCampanha) {
+        const selectedOpt = campanhaSelect && campanhaSelect.selectedOptions[0] ? campanhaSelect.selectedOptions[0].textContent : 'Todas';
+        campanhaPrintCampanha.textContent = `Campanha: ${selectedOpt}`;
+    }
+    if (campanhaPrintPeriodo) {
+        if (dtInicio && dtFim) {
+            campanhaPrintPeriodo.textContent = `Período: ${formatDateBR(dtInicio)} a ${formatDateBR(dtFim)}`;
+        } else if (dtInicio) {
+            campanhaPrintPeriodo.textContent = `A partir de: ${formatDateBR(dtInicio)}`;
+        } else if (dtFim) {
+            campanhaPrintPeriodo.textContent = `Até: ${formatDateBR(dtFim)}`;
+        } else {
+            campanhaPrintPeriodo.textContent = `Período: Todo o Histórico (Sem restrição de data)`;
+        }
+    }
+
+    // UI Loading state
+    if (btnSearchCampanhas) {
+        btnSearchCampanhas.disabled = true;
+        btnSearchCampanhas.innerHTML = '<span>⏳</span><span>Buscando...</span>';
+    }
+
+    campanhaReportContent.innerHTML = `
+        <div class="empty-state" style="padding: 3rem 1rem; text-align: center;">
+            <div style="font-size: 2rem; margin-bottom: 0.75rem;">⏳</div>
+            <h3>Consultando ordens de serviço da campanha...</h3>
+            <p style="color: var(--text-secondary); margin-top: 0.25rem;">Aguarde enquanto processamos os itens, lentes, serviços e descontos.</p>
+        </div>
+    `;
+
+    try {
+        let url = `/api/campanhas/relatorio?limit=${limit}`;
+        if (codCampanha > 0) url += `&cod_campanha=${codCampanha}`;
+        if (dtInicio) url += `&data_inicio=${encodeURIComponent(dtInicio)}`;
+        if (dtFim) url += `&data_fim=${encodeURIComponent(dtFim)}`;
+        if (clienteQuery) url += `&cliente=${encodeURIComponent(clienteQuery)}`;
+
+        const res = await fetch(url);
+        if (!res.ok) {
+            const errDetail = await res.text();
+            throw new Error(`Erro ao gerar relatório (${res.status}): ${errDetail}`);
+        }
+
+        const data = await res.json();
+        currentCampanhasReportData = data;
+
+        updateCampanhasStatsBar(data.totais);
+        renderCampanhasReport(data);
+
+        showToast(`${data.totais.total_os} OS(s) encontrada(s) em ${data.totais.total_clientes} cliente(s).`, 'success');
+    } catch (e) {
+        console.error('Erro searchCampanhasReport:', e);
+        showToast(e.message || 'Erro ao carregar dados do relatório.', 'error');
+        campanhaReportContent.innerHTML = `
+            <div class="empty-state" style="padding: 3rem 1rem; text-align: center; color: #ef4444;">
+                <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">⚠️</div>
+                <h3>Falha ao carregar relatório</h3>
+                <p style="margin-top: 0.25rem;">${escapeHtml(e.message || 'Erro inesperado')}</p>
+            </div>
+        `;
+    } finally {
+        if (btnSearchCampanhas) {
+            btnSearchCampanhas.disabled = false;
+            btnSearchCampanhas.innerHTML = '<span>🔍 Filtrar</span>';
+        }
+    }
+}
+
+function updateCampanhasStatsBar(totais) {
+    if (!totais) return;
+    if (statCampanhaClientes) statCampanhaClientes.textContent = totais.total_clientes || 0;
+    if (statCampanhaOS) statCampanhaOS.textContent = totais.total_os || 0;
+    if (statCampanhaLentes) statCampanhaLentes.textContent = `R$ ${formatMoney(totais.total_lentes_valor)}`;
+    if (statCampanhaServicos) statCampanhaServicos.textContent = `R$ ${formatMoney(totais.total_servicos_valor)}`;
+    if (statCampanhaDescontos) statCampanhaDescontos.textContent = `R$ ${formatMoney(totais.total_desconto_geral)}`;
+    if (statCampanhaTotalGeral) statCampanhaTotalGeral.textContent = `R$ ${formatMoney(totais.total_geral)}`;
+
+    if (campanhaResultBadge) {
+        campanhaResultBadge.textContent = `${totais.total_clientes} clientes (${totais.total_os} OSs)`;
+    }
+}
+
+function renderCampanhasReport(data) {
+    if (!campanhaReportContent) return;
+
+    const clientes = data.clientes || [];
+    if (clientes.length === 0) {
+        campanhaReportContent.innerHTML = `
+            <div class="empty-state" style="padding: 3rem 1rem; text-align: center; color: var(--text-secondary);">
+                <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🔍</div>
+                <h3>Nenhuma ordem de serviço encontrada</h3>
+                <p style="margin-top: 0.25rem;">Tente ajustar os filtros de campanha, período ou nome do cliente.</p>
+            </div>
+        `;
+        return;
+    }
+
+    campanhaReportContent.innerHTML = '';
+    const autoOpen = (clientes.length <= 8);
+
+    clientes.forEach((client) => {
+        const clientCard = document.createElement('div');
+        clientCard.className = 'client-group-card' + (autoOpen ? ' open' : '');
+
+        // Header
+        const headerEl = document.createElement('div');
+        headerEl.className = 'client-group-header';
+        headerEl.innerHTML = `
+            <div class="client-header-info">
+                <span class="client-header-chevron">▶</span>
+                <div class="client-title-block">
+                    <div class="client-name-fantasia">${escapeHtml(client.nome_fantasia)}</div>
+                    <div class="client-sub-meta">
+                        ${client.razao_social ? `<span>${escapeHtml(client.razao_social)}</span><span class="sep">•</span>` : ''}
+                        <span>Cód: ${client.identificador || client.cod_pessoa}</span>
+                        ${client.cnpj_cpf ? `<span class="sep">•</span><span>${escapeHtml(client.cnpj_cpf)}</span>` : ''}
+                        ${client.cidade ? `<span class="sep">•</span><span>${escapeHtml(client.cidade)}${client.uf ? '/' + escapeHtml(client.uf) : ''}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+            <div class="client-header-badges">
+                <span class="client-stat-badge badge-count" title="Total de OSs deste cliente">
+                    📋 ${client.totais.total_os} OS
+                </span>
+                <span class="client-stat-badge badge-lentes" title="Total Faturado em Lentes">
+                    👓 Lentes: R$ ${formatMoney(client.totais.total_lentes_valor)}
+                </span>
+                <span class="client-stat-badge badge-servicos" title="Total Faturado em Serviços">
+                    ⚙️ Serv: R$ ${formatMoney(client.totais.total_servicos_valor)}
+                </span>
+                <span class="client-stat-badge badge-desconto" title="Total de Descontos Concedidos">
+                    🏷️ Desc: R$ ${formatMoney(client.totais.total_desconto_geral)}
+                </span>
+                <span class="client-stat-badge badge-total" title="Faturamento Total do Cliente">
+                    💰 Total: R$ ${formatMoney(client.totais.total_geral)}
+                </span>
+            </div>
+        `;
+
+        headerEl.addEventListener('click', () => {
+            clientCard.classList.toggle('open');
+        });
+
+        // Body
+        const bodyEl = document.createElement('div');
+        bodyEl.className = 'client-group-body';
+
+        (client.ordens_servico || []).forEach(os => {
+            const osCard = document.createElement('div');
+            osCard.className = 'os-card';
+
+            // Lentes Table
+            let lentesHtml = '';
+            if (os.lentes && os.lentes.length > 0) {
+                let subtotalLentesTabela = 0;
+                let subtotalLentesDesc = 0;
+                let subtotalLentesTot = 0;
+                let subtotalLentesQtd = 0;
+
+                const rows = os.lentes.map(l => {
+                    subtotalLentesTabela += (l.valor_original * l.quantidade);
+                    subtotalLentesDesc += l.desconto_total;
+                    subtotalLentesTot += l.total;
+                    subtotalLentesQtd += l.quantidade;
+
+                    return `
+                        <tr>
+                            <td style="font-family: monospace; font-size: 0.75rem; color: #94a3b8;">${escapeHtml(l.cod_item)}</td>
+                            <td>
+                                <strong>${escapeHtml(l.descricao)}</strong>
+                                ${l.familia ? `<div style="font-size: 0.72rem; color: #94a3b8;">Família: ${escapeHtml(l.familia)}</div>` : ''}
+                            </td>
+                            <td class="text-center">${l.quantidade}</td>
+                            <td class="text-right">R$ ${formatMoney(l.valor_original)}</td>
+                            <td class="text-right discount-text">${l.desconto_unitario > 0 ? `R$ ${formatMoney(l.desconto_unitario)}` : '-'}</td>
+                            <td class="text-right discount-text">${l.desconto_total > 0 ? `R$ ${formatMoney(l.desconto_total)}` : '-'}</td>
+                            <td class="text-center discount-text">${l.perc_desconto > 0 ? `${l.perc_desconto.toFixed(1)}%` : '-'}</td>
+                            <td class="text-right" style="font-weight: 600;">R$ ${formatMoney(l.valor_unitario)}</td>
+                            <td class="text-right" style="font-weight: 700; color: #60a5fa;">R$ ${formatMoney(l.total)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                lentesHtml = `
+                    <div class="items-section-block">
+                        <div class="items-section-title title-lentes">
+                            <span>👓</span>
+                            <span>Lentes (Produtos) - ${os.lentes.length} item(ns)</span>
+                        </div>
+                        <table class="table-subitems">
+                            <thead>
+                                <tr>
+                                    <th style="width: 80px;">Cód.</th>
+                                    <th>Descrição da Lente</th>
+                                    <th class="text-center" style="width: 60px;">Qtd</th>
+                                    <th class="text-right" style="width: 95px;">Tabela Unit.</th>
+                                    <th class="text-right" style="width: 90px;">Desc. Unit.</th>
+                                    <th class="text-right" style="width: 90px;">Desc. Total</th>
+                                    <th class="text-center" style="width: 70px;">% Desc.</th>
+                                    <th class="text-right" style="width: 95px;">Praticado</th>
+                                    <th class="text-right" style="width: 105px;">Total Líquido</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                                <tr class="subtotal-row">
+                                    <td colspan="2" class="text-right">Subtotal Lentes:</td>
+                                    <td class="text-center">${subtotalLentesQtd}</td>
+                                    <td class="text-right">R$ ${formatMoney(subtotalLentesTabela)}</td>
+                                    <td></td>
+                                    <td class="text-right discount-text">${subtotalLentesDesc > 0 ? `R$ ${formatMoney(subtotalLentesDesc)}` : '-'}</td>
+                                    <td class="text-center discount-text">${subtotalLentesTabela > 0 ? `${((subtotalLentesDesc / subtotalLentesTabela) * 100).toFixed(1)}%` : '-'}</td>
+                                    <td></td>
+                                    <td class="text-right" style="color: #60a5fa;">R$ ${formatMoney(subtotalLentesTot)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } else {
+                lentesHtml = `
+                    <div class="items-section-block">
+                        <div class="items-section-title title-lentes"><span>👓</span><span>Lentes</span></div>
+                        <div class="no-items-notice">Nenhuma lente listada nesta OS.</div>
+                    </div>
+                `;
+            }
+
+            // Serviços Table
+            let servicosHtml = '';
+            if (os.servicos && os.servicos.length > 0) {
+                let subtotalServicosTabela = 0;
+                let subtotalServicosDesc = 0;
+                let subtotalServicosTot = 0;
+                let subtotalServicosQtd = 0;
+
+                const rows = os.servicos.map(s => {
+                    subtotalServicosTabela += (s.valor_original * s.quantidade);
+                    subtotalServicosDesc += s.desconto_total;
+                    subtotalServicosTot += s.total;
+                    subtotalServicosQtd += s.quantidade;
+
+                    return `
+                        <tr>
+                            <td style="font-family: monospace; font-size: 0.75rem; color: #94a3b8;">${escapeHtml(s.cod_item)}</td>
+                            <td><strong>${escapeHtml(s.descricao)}</strong></td>
+                            <td class="text-center">${s.quantidade}</td>
+                            <td class="text-right">R$ ${formatMoney(s.valor_original)}</td>
+                            <td class="text-right discount-text">${s.desconto_unitario > 0 ? `R$ ${formatMoney(s.desconto_unitario)}` : '-'}</td>
+                            <td class="text-right discount-text">${s.desconto_total > 0 ? `R$ ${formatMoney(s.desconto_total)}` : '-'}</td>
+                            <td class="text-center discount-text">${s.perc_desconto > 0 ? `${s.perc_desconto.toFixed(1)}%` : '-'}</td>
+                            <td class="text-right" style="font-weight: 600;">R$ ${formatMoney(s.valor_unitario)}</td>
+                            <td class="text-right" style="font-weight: 700; color: #c084fc;">R$ ${formatMoney(s.total)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                servicosHtml = `
+                    <div class="items-section-block" style="margin-top: 0.5rem;">
+                        <div class="items-section-title title-servicos">
+                            <span>⚙️</span>
+                            <span>Serviços Adicionais - ${os.servicos.length} item(ns)</span>
+                        </div>
+                        <table class="table-subitems">
+                            <thead>
+                                <tr>
+                                    <th style="width: 80px;">Cód.</th>
+                                    <th>Descrição do Serviço</th>
+                                    <th class="text-center" style="width: 60px;">Qtd</th>
+                                    <th class="text-right" style="width: 95px;">Tabela Unit.</th>
+                                    <th class="text-right" style="width: 90px;">Desc. Unit.</th>
+                                    <th class="text-right" style="width: 90px;">Desc. Total</th>
+                                    <th class="text-center" style="width: 70px;">% Desc.</th>
+                                    <th class="text-right" style="width: 95px;">Praticado</th>
+                                    <th class="text-right" style="width: 105px;">Total Líquido</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                                <tr class="subtotal-row">
+                                    <td colspan="2" class="text-right">Subtotal Serviços:</td>
+                                    <td class="text-center">${subtotalServicosQtd}</td>
+                                    <td class="text-right">R$ ${formatMoney(subtotalServicosTabela)}</td>
+                                    <td></td>
+                                    <td class="text-right discount-text">${subtotalServicosDesc > 0 ? `R$ ${formatMoney(subtotalServicosDesc)}` : '-'}</td>
+                                    <td class="text-center discount-text">${subtotalServicosTabela > 0 ? `${((subtotalServicosDesc / subtotalServicosTabela) * 100).toFixed(1)}%` : '-'}</td>
+                                    <td></td>
+                                    <td class="text-right" style="color: #c084fc;">R$ ${formatMoney(subtotalServicosTot)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            osCard.innerHTML = `
+                <div class="os-card-header">
+                    <div class="os-title-group">
+                        <span class="os-badge-num">OS #${os.numero_os}</span>
+                        <span class="os-campanha-tag" title="Campanha Vinculada">🎯 ${escapeHtml(os.campanha_nome)}</span>
+                        <span class="os-date-tag">📅 Emissão: <strong>${formatDateBR(os.data_emissao)}</strong></span>
+                        ${os.situacao_os ? `<span class="badge" style="font-size: 0.75rem;">${escapeHtml(os.situacao_os)}</span>` : ''}
+                    </div>
+                    <div class="os-totals-summary">
+                        <div class="os-tot-item">
+                            <span class="label">Lentes:</span>
+                            <span class="val">R$ ${formatMoney(os.total_produtos)}</span>
+                        </div>
+                        <div class="os-tot-item">
+                            <span class="label">Serviços:</span>
+                            <span class="val">R$ ${formatMoney(os.total_servicos)}</span>
+                        </div>
+                        ${os.desconto_os > 0 ? `
+                            <div class="os-tot-item">
+                                <span class="label">Desc. OS:</span>
+                                <span class="val discount-text">- R$ ${formatMoney(os.desconto_os)}</span>
+                            </div>
+                        ` : ''}
+                        <div class="os-tot-item">
+                            <span class="label">Desc. Total:</span>
+                            <span class="val discount-text">R$ ${formatMoney(os.desconto_total)}</span>
+                        </div>
+                        <div class="os-tot-item" style="border-left: 1px solid var(--border-color, #334155); padding-left: 0.5rem;">
+                            <span class="label" style="font-weight: 700; color: #fde047;">Total OS:</span>
+                            <span class="val" style="font-weight: 700; color: #fde047; font-size: 0.95rem;">R$ ${formatMoney(os.total_geral)}</span>
+                        </div>
+                    </div>
+                </div>
+                ${lentesHtml}
+                ${servicosHtml}
+                ${os.observacao ? `
+                    <div style="font-size: 0.76rem; color: #94a3b8; background: rgba(15, 23, 42, 0.4); padding: 0.4rem 0.6rem; border-radius: 4px; border-left: 3px solid #3b82f6;">
+                        <strong>Observação:</strong> ${escapeHtml(os.observacao)}
+                    </div>
+                ` : ''}
+            `;
+
+            bodyEl.appendChild(osCard);
+        });
+
+        clientCard.appendChild(headerEl);
+        clientCard.appendChild(bodyEl);
+        campanhaReportContent.appendChild(clientCard);
+    });
+}
+
+// Expand / Collapse All
+function expandAllCampanhas() {
+    if (!campanhaReportContent) return;
+    campanhaReportContent.querySelectorAll('.client-group-card').forEach(c => c.classList.add('open'));
+}
+
+function collapseAllCampanhas() {
+    if (!campanhaReportContent) return;
+    campanhaReportContent.querySelectorAll('.client-group-card').forEach(c => c.classList.remove('open'));
+}
+
+// Print Handler
+function printCampanhasReport() {
+    if (!currentCampanhasReportData || !currentCampanhasReportData.clientes || currentCampanhasReportData.clientes.length === 0) {
+        showToast('Nenhum dado para imprimir. Realize uma busca primeiro.', 'warning');
+        return;
+    }
+
+    if (!printCampanhaReportContainer) {
+        expandAllCampanhas();
+        setTimeout(() => window.print(), 200);
+        return;
+    }
+
+    // Isolamento absoluto: esvaziar todos os outros containers de impressão
+    if (printClientesFamiliaContainer) printClientesFamiliaContainer.innerHTML = '';
+    if (printClientItemsContainer) printClientItemsContainer.innerHTML = '';
+    if (printFamilyOrdersContainer) printFamilyOrdersContainer.innerHTML = '';
+    if (printOsReportContainer) printOsReportContainer.innerHTML = '';
+
+    const reportData = currentCampanhasReportData;
+    const totais = reportData.totais || {};
+    const clientes = reportData.clientes || [];
+
+    // Metadados do relatório
+    const emissaoStr = new Date().toLocaleString('pt-BR');
+    const selectedCampanhaText = (campanhaSelect && campanhaSelect.selectedOptions[0]) 
+        ? campanhaSelect.selectedOptions[0].textContent.replace(/^[🟢⚪🎯]\s*/, '') 
+        : 'Todas as Campanhas Promocionais';
+
+    let periodoText = 'Todo o Histórico (Sem restrição de período)';
+    const dtIni = campanhaDateInicio ? campanhaDateInicio.value : '';
+    const dtFim = campanhaDateFim ? campanhaDateFim.value : '';
+    if (dtIni && dtFim) {
+        periodoText = `${formatDateBR(dtIni)} a ${formatDateBR(dtFim)}`;
+    } else if (dtIni) {
+        periodoText = `A partir de ${formatDateBR(dtIni)}`;
+    } else if (dtFim) {
+        periodoText = `Até ${formatDateBR(dtFim)}`;
+    }
+
+    const clienteFiltroText = (campanhaSearchClientInput && campanhaSearchClientInput.value.trim())
+        ? campanhaSearchClientInput.value.trim()
+        : 'Todos os Clientes';
+
+    // Construção dos blocos de clientes
+    const clientBlocksHtml = clientes.map(client => {
+        const clientTot = client.totais || {};
+        const oss = client.ordens_servico || [];
+
+        const osBlocksHtml = oss.map(os => {
+            // Lentes
+            let lentesSection = '';
+            if (os.lentes && os.lentes.length > 0) {
+                let subTotTabela = 0;
+                let subTotDesc = 0;
+                let subTotLiq = 0;
+                let subQtd = 0;
+
+                const lRows = os.lentes.map(l => {
+                    subTotTabela += (l.valor_original * l.quantidade);
+                    subTotDesc += l.desconto_total;
+                    subTotLiq += l.total;
+                    subQtd += l.quantidade;
+
+                    return `
+                        <tr>
+                            <td style="font-family: monospace; width: 65px; color: #475569;">${escapeHtml(l.cod_item)}</td>
+                            <td>
+                                <strong>${escapeHtml(l.descricao)}</strong>
+                                ${l.familia ? `<span style="color: #64748b; font-size: 6.5pt; margin-left: 4px;">(${escapeHtml(l.familia)})</span>` : ''}
+                            </td>
+                            <td style="text-align: center; width: 40px;">${l.quantidade}</td>
+                            <td style="text-align: right; width: 75px;">R$ ${formatMoney(l.valor_original)}</td>
+                            <td style="text-align: right; width: 70px; color: #b91c1c;">${l.desconto_unitario > 0 ? `R$ ${formatMoney(l.desconto_unitario)}` : '-'}</td>
+                            <td style="text-align: right; width: 70px; color: #b91c1c;">${l.desconto_total > 0 ? `R$ ${formatMoney(l.desconto_total)}` : '-'}</td>
+                            <td style="text-align: center; width: 55px; color: #b91c1c;">${l.perc_desconto > 0 ? `${l.perc_desconto.toFixed(1)}%` : '-'}</td>
+                            <td style="text-align: right; width: 75px; font-weight: 600;">R$ ${formatMoney(l.valor_unitario)}</td>
+                            <td style="text-align: right; width: 85px; font-weight: 700; color: #1e40af;">R$ ${formatMoney(l.total)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                lentesSection = `
+                    <table class="print-campanha-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 65px;">Cód.</th>
+                                <th>Lentes (Produtos) - ${os.lentes.length} item(ns)</th>
+                                <th style="text-align: center; width: 40px;">Qtd</th>
+                                <th style="text-align: right; width: 75px;">Tab. Unit.</th>
+                                <th style="text-align: right; width: 70px;">Desc. Unit.</th>
+                                <th style="text-align: right; width: 70px;">Desc. Total</th>
+                                <th style="text-align: center; width: 55px;">% Desc</th>
+                                <th style="text-align: right; width: 75px;">Praticado</th>
+                                <th style="text-align: right; width: 85px;">Total Líquido</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${lRows}
+                            <tr class="subtotal-row">
+                                <td colspan="2" style="text-align: right; font-weight: 700;">Subtotal Lentes:</td>
+                                <td style="text-align: center; font-weight: 700;">${subQtd}</td>
+                                <td style="text-align: right; font-weight: 700;">R$ ${formatMoney(subTotTabela)}</td>
+                                <td></td>
+                                <td style="text-align: right; font-weight: 700; color: #b91c1c;">${subTotDesc > 0 ? `R$ ${formatMoney(subTotDesc)}` : '-'}</td>
+                                <td style="text-align: center; font-weight: 700; color: #b91c1c;">${subTotTabela > 0 ? `${((subTotDesc / subTotTabela) * 100).toFixed(1)}%` : '-'}</td>
+                                <td></td>
+                                <td style="text-align: right; font-weight: 700; color: #1e40af;">R$ ${formatMoney(subTotLiq)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            // Serviços
+            let servicosSection = '';
+            if (os.servicos && os.servicos.length > 0) {
+                let subTotTabela = 0;
+                let subTotDesc = 0;
+                let subTotLiq = 0;
+                let subQtd = 0;
+
+                const sRows = os.servicos.map(s => {
+                    subTotTabela += (s.valor_original * s.quantidade);
+                    subTotDesc += s.desconto_total;
+                    subTotLiq += s.total;
+                    subQtd += s.quantidade;
+
+                    return `
+                        <tr>
+                            <td style="font-family: monospace; width: 65px; color: #475569;">${escapeHtml(s.cod_item)}</td>
+                            <td><strong>${escapeHtml(s.descricao)}</strong></td>
+                            <td style="text-align: center; width: 40px;">${s.quantidade}</td>
+                            <td style="text-align: right; width: 75px;">R$ ${formatMoney(s.valor_original)}</td>
+                            <td style="text-align: right; width: 70px; color: #b91c1c;">${s.desconto_unitario > 0 ? `R$ ${formatMoney(s.desconto_unitario)}` : '-'}</td>
+                            <td style="text-align: right; width: 70px; color: #b91c1c;">${s.desconto_total > 0 ? `R$ ${formatMoney(s.desconto_total)}` : '-'}</td>
+                            <td style="text-align: center; width: 55px; color: #b91c1c;">${s.perc_desconto > 0 ? `${s.perc_desconto.toFixed(1)}%` : '-'}</td>
+                            <td style="text-align: right; width: 75px; font-weight: 600;">R$ ${formatMoney(s.valor_unitario)}</td>
+                            <td style="text-align: right; width: 85px; font-weight: 700; color: #7c3aed;">R$ ${formatMoney(s.total)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                servicosSection = `
+                    <table class="print-campanha-table" style="margin-top: 3px;">
+                        <thead>
+                            <tr>
+                                <th style="width: 65px;">Cód.</th>
+                                <th>Serviços Adicionais - ${os.servicos.length} item(ns)</th>
+                                <th style="text-align: center; width: 40px;">Qtd</th>
+                                <th style="text-align: right; width: 75px;">Tab. Unit.</th>
+                                <th style="text-align: right; width: 70px;">Desc. Unit.</th>
+                                <th style="text-align: right; width: 70px;">Desc. Total</th>
+                                <th style="text-align: center; width: 55px;">% Desc</th>
+                                <th style="text-align: right; width: 75px;">Praticado</th>
+                                <th style="text-align: right; width: 85px;">Total Líquido</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${sRows}
+                            <tr class="subtotal-row">
+                                <td colspan="2" style="text-align: right; font-weight: 700;">Subtotal Serviços:</td>
+                                <td style="text-align: center; font-weight: 700;">${subQtd}</td>
+                                <td style="text-align: right; font-weight: 700;">R$ ${formatMoney(subTotTabela)}</td>
+                                <td></td>
+                                <td style="text-align: right; font-weight: 700; color: #b91c1c;">${subTotDesc > 0 ? `R$ ${formatMoney(subTotDesc)}` : '-'}</td>
+                                <td style="text-align: center; font-weight: 700; color: #b91c1c;">${subTotTabela > 0 ? `${((subTotDesc / subTotTabela) * 100).toFixed(1)}%` : '-'}</td>
+                                <td></td>
+                                <td style="text-align: right; font-weight: 700; color: #7c3aed;">R$ ${formatMoney(subTotLiq)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            return `
+                <div class="print-campanha-os-block">
+                    <div class="print-campanha-os-header">
+                        <div class="print-campanha-os-title">
+                            <span>OS #${os.numero_os}</span>
+                            <span style="font-size: 7.5pt; color: #64748b; font-weight: normal;">(Cód: ${os.cod_ordemservico})</span>
+                            <span class="print-campanha-os-tag">🎯 ${escapeHtml(os.campanha_nome)}</span>
+                            <span style="font-size: 7.5pt; color: #475569; font-weight: normal;">📅 Emissão: <strong>${formatDateBR(os.data_emissao)}</strong></span>
+                            ${os.situacao_os ? `<span class="print-campanha-badge">${escapeHtml(os.situacao_os)}</span>` : ''}
+                        </div>
+                        <div class="print-campanha-os-totals">
+                            <span>Lentes: <strong>R$ ${formatMoney(os.total_produtos)}</strong></span>
+                            <span>•</span>
+                            <span>Serv: <strong>R$ ${formatMoney(os.total_servicos)}</strong></span>
+                            ${os.desconto_total > 0 ? `<span>•</span><span style="color: #dc2626;">Desc: <strong>R$ ${formatMoney(os.desconto_total)}</strong></span>` : ''}
+                            <span>•</span>
+                            <span style="font-weight: 800; color: #1e3a8a; font-size: 8.5pt;">Total: R$ ${formatMoney(os.total_geral)}</span>
+                        </div>
+                    </div>
+                    ${lentesSection}
+                    ${servicosSection}
+                    ${os.observacao ? `
+                        <div style="font-size: 6.8pt; color: #475569; font-style: italic; margin-top: 2px;">
+                            <strong>Observação da OS:</strong> ${escapeHtml(os.observacao)}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="print-campanha-client-block">
+                <div class="print-campanha-client-header">
+                    <div>
+                        <div class="print-campanha-client-title">${escapeHtml(client.nome_fantasia)}</div>
+                        <div class="print-campanha-client-sub">
+                            ${client.razao_social ? `<span>${escapeHtml(client.razao_social)}</span> • ` : ''}
+                            <span>Cód: <strong>${client.identificador || client.cod_pessoa}</strong></span>
+                            ${client.cnpj_cpf ? ` • <span>Doc: ${escapeHtml(client.cnpj_cpf)}</span>` : ''}
+                            ${client.cidade ? ` • <span>${escapeHtml(client.cidade)}${client.uf ? '/' + escapeHtml(client.uf) : ''}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="print-campanha-client-badges">
+                        <span class="print-campanha-badge">📋 ${clientTot.total_os || 0} OS</span>
+                        <span class="print-campanha-badge">👓 Lentes: R$ ${formatMoney(clientTot.total_lentes_valor || 0)}</span>
+                        <span class="print-campanha-badge">⚙️ Serv: R$ ${formatMoney(clientTot.total_servicos_valor || 0)}</span>
+                        <span class="print-campanha-badge" style="color: #b91c1c;">🏷️ Desc: R$ ${formatMoney(clientTot.total_desconto_geral || 0)}</span>
+                        <span class="print-campanha-badge" style="font-weight: 800; background-color: #f1f5f9; border-color: #94a3b8;">💰 Total: R$ ${formatMoney(clientTot.total_geral || 0)}</span>
+                    </div>
+                </div>
+                <div class="print-campanha-client-body">
+                    ${osBlocksHtml}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    printCampanhaReportContainer.innerHTML = `
+        <div class="campanha-print-report">
+            <!-- Cabeçalho Executivo do Relatório -->
+            <div class="campanha-print-header">
+                <div class="campanha-print-header-top">
+                    <div>
+                        <div class="campanha-print-brand">
+                            Aspheric Analytics • Gestão de Laboratório Óptico & Ordens de Serviço
+                        </div>
+                        <h1 class="campanha-print-title">
+                            RELATÓRIO DE ORDENS DE SERVIÇO POR CAMPANHA PROMOCIONAL
+                        </h1>
+                        <div class="campanha-print-meta">
+                            <strong>Campanha:</strong> ${escapeHtml(selectedCampanhaText)} | 
+                            <strong>Período:</strong> ${escapeHtml(periodoText)}
+                            ${clienteFiltroText !== 'Todos os Clientes' ? ` | <strong>Cliente:</strong> ${escapeHtml(clienteFiltroText)}` : ''}
+                        </div>
+                    </div>
+                    <div style="text-align: right; font-size: 8pt; color: #475569; min-width: 170px;">
+                        <div>Emissão: <strong>${emissaoStr}</strong></div>
+                        <div>Clientes Listados: <strong>${totais.total_clientes || 0}</strong></div>
+                        <div>Total de OSs: <strong style="color: #2563eb;">${totais.total_os || 0}</strong></div>
+                    </div>
+                </div>
+
+                <!-- Painel de Indicadores Executivos -->
+                <div class="campanha-print-stats">
+                    <div class="campanha-print-stat-box">
+                        <span class="campanha-print-stat-label">Clientes Atendidos</span>
+                        <span class="campanha-print-stat-value" style="color: #1e3a8a;">${totais.total_clientes || 0}</span>
+                    </div>
+                    <div class="campanha-print-stat-box">
+                        <span class="campanha-print-stat-label">Total de OSs</span>
+                        <span class="campanha-print-stat-value" style="color: #2563eb;">${totais.total_os || 0}</span>
+                    </div>
+                    <div class="campanha-print-stat-box">
+                        <span class="campanha-print-stat-label">Total em Lentes</span>
+                        <span class="campanha-print-stat-value" style="color: #059669;">R$ ${formatMoney(totais.total_lentes_valor || 0)}</span>
+                    </div>
+                    <div class="campanha-print-stat-box">
+                        <span class="campanha-print-stat-label">Total em Serviços</span>
+                        <span class="campanha-print-stat-value" style="color: #7c3aed;">R$ ${formatMoney(totais.total_servicos_valor || 0)}</span>
+                    </div>
+                    <div class="campanha-print-stat-box">
+                        <span class="campanha-print-stat-label">Descontos Concedidos</span>
+                        <span class="campanha-print-stat-value" style="color: #dc2626;">R$ ${formatMoney(totais.total_desconto_geral || 0)}</span>
+                    </div>
+                    <div class="campanha-print-stat-box" style="border-color: #f59e0b; background-color: #fffbeb;">
+                        <span class="campanha-print-stat-label" style="color: #b45309;">Faturamento Geral</span>
+                        <span class="campanha-print-stat-value" style="color: #b45309;">R$ ${formatMoney(totais.total_geral || 0)}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Listagem Agrupada de Clientes e OSs -->
+            <div style="margin-top: 6px;">
+                ${clientBlocksHtml}
+            </div>
+
+            <!-- Totalizador Geral Consolidado -->
+            <div class="print-campanha-grand-total">
+                <div>
+                    TOTAL GERAL CONSOLIDADO: ${totais.total_clientes || 0} Clientes • ${totais.total_os || 0} Ordens de Serviço
+                </div>
+                <div style="display: flex; gap: 14px; align-items: center; font-size: 8pt;">
+                    <span style="color: #a7f3d0;">Lentes: R$ ${formatMoney(totais.total_lentes_valor || 0)}</span>
+                    <span style="color: #ddd6fe;">Serv: R$ ${formatMoney(totais.total_servicos_valor || 0)}</span>
+                    <span style="color: #fca5a5;">Desc: R$ ${formatMoney(totais.total_desconto_geral || 0)}</span>
+                    <span style="color: #fde047; font-size: 9pt;">Total Líquido: R$ ${formatMoney(totais.total_geral || 0)}</span>
+                </div>
+            </div>
+
+            <!-- Rodapé Formal do Documento -->
+            <div class="print-campanha-footer">
+                <div>
+                    Documento emitido eletronicamente pelo módulo <strong>Aspheric Analytics</strong> em ${emissaoStr}.
+                </div>
+                <div style="font-style: italic;">
+                    Relatório Executivo de Ordens de Serviço por Campanha Promocional • Quebras de Páginas Otimizadas
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.classList.remove('printing-clientes-familia', 'printing-client-items', 'printing-family-orders', 'printing-os-report');
+    document.body.classList.add('printing-campanha-report');
+
+    const cleanup = () => {
+        document.body.classList.remove('printing-campanha-report');
+        if (printCampanhaReportContainer) printCampanhaReportContainer.innerHTML = '';
+        window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setTimeout(() => {
+        window.print();
+        setTimeout(cleanup, 2500);
+    }, 150);
+}
+
+// Clear Filters
+function clearCampanhasFilters() {
+    if (campanhaSelect) campanhaSelect.value = '0';
+    if (campanhaDateInicio) campanhaDateInicio.value = '';
+    if (campanhaDateFim) campanhaDateFim.value = '';
+    if (campanhaSearchClientInput) campanhaSearchClientInput.value = '';
+    campanhaSelectedClientCod = null;
+    if (btnClearCampanhaClientSearch) btnClearCampanhaClientSearch.classList.add('hidden');
+    if (campanhaLimitSelect) campanhaLimitSelect.value = '1000';
+    if (campanhaReportContent) {
+        campanhaReportContent.innerHTML = `
+            <div class="empty-state" style="padding: 3rem 1rem; text-align: center; color: var(--text-secondary);">
+                <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🎯</div>
+                <h3>Filtros limpos</h3>
+                <p style="margin-top: 0.25rem;">Selecione a campanha e clique em <strong>Filtrar</strong> para gerar o relatório.</p>
+            </div>
+        `;
+    }
+    updateCampanhasStatsBar({
+        total_clientes: 0,
+        total_os: 0,
+        total_lentes_valor: 0,
+        total_servicos_valor: 0,
+        total_desconto_geral: 0,
+        total_geral: 0
+    });
+}
+
+// Export to CSV / Excel
+function exportCampanhasCsv() {
+    if (!currentCampanhasReportData || !currentCampanhasReportData.clientes || currentCampanhasReportData.clientes.length === 0) {
+        showToast('Nenhum dado para exportar. Realize uma pesquisa primeiro.', 'warning');
+        return;
+    }
+
+    const rows = [];
+    rows.push([
+        'Cód. Cliente',
+        'Nome Fantasia',
+        'Razão Social',
+        'CNPJ / CPF',
+        'Cidade',
+        'UF',
+        'Nº OS',
+        'Cód. OS',
+        'Data Emissão',
+        'Campanha',
+        'Situação OS',
+        'Tipo Item',
+        'Cód. Item',
+        'Descrição do Item',
+        'Família',
+        'Qtd',
+        'Valor Tabela Unitário (R$)',
+        'Desconto Unitário (R$)',
+        'Desconto Total (R$)',
+        '% Desconto',
+        'Valor Praticado Unitário (R$)',
+        'Total Líquido Item (R$)',
+        'Desconto Geral OS (R$)',
+        'Total da OS (R$)'
+    ]);
+
+    currentCampanhasReportData.clientes.forEach(client => {
+        (client.ordens_servico || []).forEach(os => {
+            (os.lentes || []).forEach(it => {
+                rows.push([
+                    client.identificador || client.cod_pessoa,
+                    client.nome_fantasia,
+                    client.razao_social,
+                    client.cnpj_cpf,
+                    client.cidade,
+                    client.uf,
+                    os.numero_os,
+                    os.cod_ordemservico,
+                    formatDateBR(os.data_emissao),
+                    os.campanha_nome,
+                    os.situacao_os,
+                    'Lente (Produto)',
+                    it.cod_item,
+                    it.descricao,
+                    it.familia || '',
+                    it.quantidade,
+                    it.valor_original.toFixed(2).replace('.', ','),
+                    it.desconto_unitario.toFixed(2).replace('.', ','),
+                    it.desconto_total.toFixed(2).replace('.', ','),
+                    it.perc_desconto.toFixed(1).replace('.', ',') + '%',
+                    it.valor_unitario.toFixed(2).replace('.', ','),
+                    it.total.toFixed(2).replace('.', ','),
+                    os.desconto_os.toFixed(2).replace('.', ','),
+                    os.total_geral.toFixed(2).replace('.', ',')
+                ]);
+            });
+
+            (os.servicos || []).forEach(it => {
+                rows.push([
+                    client.identificador || client.cod_pessoa,
+                    client.nome_fantasia,
+                    client.razao_social,
+                    client.cnpj_cpf,
+                    client.cidade,
+                    client.uf,
+                    os.numero_os,
+                    os.cod_ordemservico,
+                    formatDateBR(os.data_emissao),
+                    os.campanha_nome,
+                    os.situacao_os,
+                    'Serviço',
+                    it.cod_item,
+                    it.descricao,
+                    it.familia || '',
+                    it.quantidade,
+                    it.valor_original.toFixed(2).replace('.', ','),
+                    it.desconto_unitario.toFixed(2).replace('.', ','),
+                    it.desconto_total.toFixed(2).replace('.', ','),
+                    it.perc_desconto.toFixed(1).replace('.', ',') + '%',
+                    it.valor_unitario.toFixed(2).replace('.', ','),
+                    it.total.toFixed(2).replace('.', ','),
+                    os.desconto_os.toFixed(2).replace('.', ','),
+                    os.total_geral.toFixed(2).replace('.', ',')
+                ]);
+            });
+        });
+    });
+
+    const csvContent = '\uFEFF' + rows.map(e => e.map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const dateStr = new Date().toISOString().substring(0, 10);
+    link.setAttribute('download', `relatorio_campanhas_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Planilha Excel/CSV gerada com sucesso!', 'success');
+}
+
+// Event Listeners for Campaign Module
+if (btnSearchCampanhas) {
+    btnSearchCampanhas.addEventListener('click', searchCampanhasReport);
+}
+
+if (btnClearCampanhas) {
+    btnClearCampanhas.addEventListener('click', clearCampanhasFilters);
+}
+
+if (btnExpandAllCampanha) {
+    btnExpandAllCampanha.addEventListener('click', expandAllCampanhas);
+}
+
+if (btnCollapseAllCampanha) {
+    btnCollapseAllCampanha.addEventListener('click', collapseAllCampanhas);
+}
+
+if (btnPrintCampanhas) {
+    btnPrintCampanhas.addEventListener('click', printCampanhasReport);
+}
+
+if (btnExportCampanhasCsv) {
+    btnExportCampanhasCsv.addEventListener('click', exportCampanhasCsv);
+}
+
+// Atalhos de Período
+const btnPeriodoSetOut = document.getElementById('btnPeriodoSetOut');
+const btnPeriodoEsteMes = document.getElementById('btnPeriodoEsteMes');
+const btnPeriodoMesAnterior = document.getElementById('btnPeriodoMesAnterior');
+const btnPeriodoAnoAtual = document.getElementById('btnPeriodoAnoAtual');
+const btnPeriodoLimpar = document.getElementById('btnPeriodoLimpar');
+
+if (btnPeriodoSetOut) {
+    btnPeriodoSetOut.addEventListener('click', () => {
+        if (campanhaDateInicio) campanhaDateInicio.value = '2026-09-01';
+        if (campanhaDateFim) campanhaDateFim.value = '2026-10-21';
+        searchCampanhasReport();
+    });
+}
+
+if (btnPeriodoEsteMes) {
+    btnPeriodoEsteMes.addEventListener('click', () => {
+        if (campanhaDateInicio) campanhaDateInicio.value = '2026-10-01';
+        if (campanhaDateFim) campanhaDateFim.value = '2026-10-31';
+        searchCampanhasReport();
+    });
+}
+
+if (btnPeriodoMesAnterior) {
+    btnPeriodoMesAnterior.addEventListener('click', () => {
+        if (campanhaDateInicio) campanhaDateInicio.value = '2026-09-01';
+        if (campanhaDateFim) campanhaDateFim.value = '2026-09-30';
+        searchCampanhasReport();
+    });
+}
+
+if (btnPeriodoAnoAtual) {
+    btnPeriodoAnoAtual.addEventListener('click', () => {
+        if (campanhaDateInicio) campanhaDateInicio.value = '2026-01-01';
+        if (campanhaDateFim) campanhaDateFim.value = '2026-12-31';
+        searchCampanhasReport();
+    });
+}
+
+if (btnPeriodoLimpar) {
+    btnPeriodoLimpar.addEventListener('click', () => {
+        if (campanhaDateInicio) campanhaDateInicio.value = '';
+        if (campanhaDateFim) campanhaDateFim.value = '';
+        searchCampanhasReport();
+    });
+}
+
 // Initialize Application (Carrega apenas a configuração do sistema e selects, sem disparar buscas pesadas no banco)
 document.addEventListener('DOMContentLoaded', async () => {
     try { await loadDatabaseSelector(); } catch (e) { console.error('Erro loadDatabaseSelector:', e); }
@@ -4136,6 +5307,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try { await loadCidades(); } catch (e) { console.error('Erro loadCidades:', e); }
     try { await loadTopCustomerTiposOperacao(); } catch (e) { console.error('Erro loadTopCustomerTiposOperacao:', e); }
     try { await loadFamiliaTiposOperacao(); } catch (e) { console.error('Erro loadFamiliaTiposOperacao:', e); }
+    try { await loadCampanhasList(); } catch (e) { console.error('Erro loadCampanhasList:', e); }
 });
 
 

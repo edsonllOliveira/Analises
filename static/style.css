@@ -840,7 +840,8 @@ select:focus,
     #printClientItemsContainer,
     #printFamilyOrdersContainer,
     #printClientesFamiliaContainer,
-    #printOsReportContainer {
+    #printOsReportContainer,
+    #printCampanhaReportContainer {
         display: none !important;
     }
 
@@ -895,24 +896,35 @@ select:focus,
     body.printing-client-items #printClientesFamiliaContainer,
     body.printing-client-items #printFamilyOrdersContainer,
     body.printing-client-items #printOsReportContainer,
+    body.printing-client-items #printCampanhaReportContainer,
     body.printing-family-orders .main-content,
     body.printing-family-orders .modal-overlay,
     body.printing-family-orders .app-header,
     body.printing-family-orders #printClientesFamiliaContainer,
     body.printing-family-orders #printClientItemsContainer,
     body.printing-family-orders #printOsReportContainer,
+    body.printing-family-orders #printCampanhaReportContainer,
     body.printing-clientes-familia .main-content,
     body.printing-clientes-familia .modal-overlay,
     body.printing-clientes-familia .app-header,
     body.printing-clientes-familia #printClientItemsContainer,
     body.printing-clientes-familia #printFamilyOrdersContainer,
     body.printing-clientes-familia #printOsReportContainer,
+    body.printing-clientes-familia #printCampanhaReportContainer,
     body.printing-os-report .main-content,
     body.printing-os-report .modal-overlay,
     body.printing-os-report .app-header,
     body.printing-os-report #printClientItemsContainer,
     body.printing-os-report #printFamilyOrdersContainer,
-    body.printing-os-report #printClientesFamiliaContainer {
+    body.printing-os-report #printClientesFamiliaContainer,
+    body.printing-os-report #printCampanhaReportContainer,
+    body.printing-campanha-report .main-content,
+    body.printing-campanha-report .modal-overlay,
+    body.printing-campanha-report .app-header,
+    body.printing-campanha-report #printClientItemsContainer,
+    body.printing-campanha-report #printFamilyOrdersContainer,
+    body.printing-campanha-report #printClientesFamiliaContainer,
+    body.printing-campanha-report #printOsReportContainer {
         display: none !important;
     }
 
@@ -951,12 +963,22 @@ select:focus,
         margin: 0 !important;
         padding: 0 !important;
     }
+
+    body.printing-campanha-report #printCampanhaReportContainer {
+        display: block !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 }
 
 #printClientItemsContainer,
 #printFamilyOrdersContainer,
 #printClientesFamiliaContainer,
-#printOsReportContainer {
+#printOsReportContainer,
+#printCampanhaReportContainer {
     display: none;
 }
 
@@ -1364,4 +1386,655 @@ select:focus,
 
 #editModal {
     z-index: 1200;
+}
+
+/* ============================================================
+   Campanha Report Styles
+   ============================================================ */
+.campanha-report-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 0.5rem 0;
+}
+
+.client-group-card {
+    background: var(--bg-card, #1e293b);
+    border: 1px solid var(--border-color, #334155);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.client-group-card:hover {
+    border-color: rgba(96, 165, 250, 0.5);
+}
+
+.client-group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    background: rgba(30, 41, 59, 0.8);
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid transparent;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.client-group-header:hover {
+    background: rgba(51, 65, 85, 0.6);
+}
+
+.client-group-card.open .client-group-header {
+    border-bottom-color: var(--border-color, #334155);
+    background: rgba(15, 23, 42, 0.6);
+}
+
+.client-header-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+}
+
+.client-header-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary, #94a3b8);
+    font-size: 0.8rem;
+    transition: transform 0.25s ease, background 0.2s ease;
+}
+
+.client-group-card.open .client-header-chevron {
+    transform: rotate(90deg);
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.15);
+}
+
+.client-title-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.client-name-fantasia {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary, #f8fafc);
+    letter-spacing: -0.01em;
+}
+
+.client-sub-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #94a3b8);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.client-sub-meta .sep {
+    opacity: 0.4;
+}
+
+.client-header-badges {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.client-stat-badge {
+    padding: 0.3rem 0.65rem;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.client-stat-badge.badge-count {
+    background: rgba(96, 165, 250, 0.15);
+    color: #93c5fd;
+    border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.client-stat-badge.badge-lentes {
+    background: rgba(34, 197, 94, 0.12);
+    color: #86efac;
+    border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.client-stat-badge.badge-servicos {
+    background: rgba(168, 85, 247, 0.12);
+    color: #d8b4fe;
+    border: 1px solid rgba(168, 85, 247, 0.25);
+}
+
+.client-stat-badge.badge-desconto {
+    background: rgba(239, 68, 68, 0.12);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.client-stat-badge.badge-total {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fde047;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.client-group-body {
+    display: none;
+    padding: 1.25rem;
+    background: rgba(15, 23, 42, 0.4);
+}
+
+.client-group-card.open .client-group-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+/* Individual OS Card */
+.os-card {
+    background: var(--bg-card, #1e293b);
+    border: 1px solid var(--border-color, #334155);
+    border-radius: 8px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.os-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding-bottom: 0.65rem;
+    border-bottom: 1px dashed var(--border-color, #334155);
+}
+
+.os-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.os-badge-num {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #60a5fa;
+    background: rgba(59, 130, 246, 0.15);
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.os-campanha-tag {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.os-date-tag {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #94a3b8);
+}
+
+.os-totals-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.82rem;
+    flex-wrap: wrap;
+}
+
+.os-totals-summary .os-tot-item {
+    display: flex;
+    gap: 4px;
+}
+
+.os-totals-summary .label {
+    color: var(--text-secondary, #94a3b8);
+}
+
+.os-totals-summary .val {
+    font-weight: 600;
+    color: var(--text-primary, #f8fafc);
+}
+
+/* Items Sub-tables */
+.items-section-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.items-section-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.items-section-title.title-lentes {
+    color: #60a5fa;
+}
+
+.items-section-title.title-servicos {
+    color: #c084fc;
+}
+
+.table-subitems {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    background: rgba(15, 23, 42, 0.5);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgba(51, 65, 85, 0.7);
+}
+
+.table-subitems th {
+    background: rgba(30, 41, 59, 0.95);
+    color: var(--text-secondary, #94a3b8);
+    font-weight: 600;
+    text-align: left;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--border-color, #334155);
+    font-size: 0.75rem;
+}
+
+.table-subitems td {
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+    color: var(--text-primary, #e2e8f0);
+}
+
+.table-subitems tr:last-child td {
+    border-bottom: none;
+}
+
+.table-subitems tr.subtotal-row td {
+    background: rgba(30, 41, 59, 0.75);
+    font-weight: 700;
+    border-top: 1px solid var(--border-color, #334155);
+}
+
+.table-subitems .discount-text {
+    color: #f87171;
+    font-weight: 600;
+}
+
+.no-items-notice {
+    font-size: 0.78rem;
+    color: var(--text-secondary, #94a3b8);
+    font-style: italic;
+    padding: 0.4rem 0.5rem;
+    background: rgba(15, 23, 42, 0.3);
+    border-radius: 4px;
+}
+
+/* ============================================================
+   🖨️ RELATÓRIO PROFISSIONAL DE CAMPANHAS PROMOCIONAIS - ESTILOS DE IMPRESSÃO
+   ============================================================ */
+.campanha-print-report {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #0f172a;
+    background: #ffffff;
+    padding: 6px 8px;
+    font-size: 8pt;
+    line-height: 1.3;
+}
+
+.campanha-print-header {
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+.campanha-print-header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.campanha-print-brand {
+    font-size: 7.5pt;
+    font-weight: 700;
+    color: #2563eb;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.campanha-print-title {
+    font-size: 13pt;
+    font-weight: 800;
+    color: #1e3a8a;
+    text-transform: uppercase;
+    margin: 2px 0 3px 0;
+}
+
+.campanha-print-meta {
+    font-size: 8pt;
+    color: #475569;
+}
+
+.campanha-print-stats {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    margin-top: 8px;
+    margin-bottom: 4px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+.campanha-print-stat-box {
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 5px 6px;
+    background: #f8fafc;
+    text-align: center;
+}
+
+.campanha-print-stat-label {
+    font-size: 7pt;
+    text-transform: uppercase;
+    color: #64748b;
+    font-weight: 600;
+    display: block;
+    white-space: nowrap;
+}
+
+.campanha-print-stat-value {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+/* Bloco do Cliente (permite quebrar páginas entre OSs, mas NUNCA deixa cabeçalho órfão) */
+.print-campanha-client-block {
+    margin-bottom: 12px;
+    border: 1px solid #94a3b8;
+    border-radius: 4px;
+    background: #ffffff;
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+.print-campanha-client-header {
+    background-color: #f1f5f9 !important;
+    border-bottom: 2px solid #2563eb !important;
+    padding: 6px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+
+.print-campanha-client-title {
+    font-size: 9.5pt;
+    font-weight: 800;
+    color: #1e3a8a;
+}
+
+.print-campanha-client-sub {
+    font-size: 7.5pt;
+    color: #475569;
+}
+
+.print-campanha-client-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.print-campanha-badge {
+    padding: 2px 5px;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    font-size: 7pt;
+    font-weight: 600;
+    background: #ffffff;
+    color: #0f172a;
+    white-space: nowrap;
+}
+
+.print-campanha-client-body {
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+/* Bloco Individual de OS (não quebra ao meio, permanece íntegro na folha) */
+.print-campanha-os-block {
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: #ffffff;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-bottom: 6px;
+}
+
+.print-campanha-os-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+.print-campanha-os-title {
+    font-size: 8.5pt;
+    font-weight: 700;
+    color: #1e40af;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.print-campanha-os-tag {
+    font-size: 7pt;
+    font-weight: 600;
+    padding: 1px 4px;
+    border: 1px solid #d97706;
+    background: #fffbeb;
+    color: #b45309;
+    border-radius: 3px;
+}
+
+.print-campanha-os-totals {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 7.5pt;
+}
+
+.print-campanha-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7pt;
+    margin-top: 3px;
+    margin-bottom: 4px;
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+.print-campanha-table thead {
+    display: table-header-group !important;
+}
+
+.print-campanha-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+
+.print-campanha-table th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    border: 1px solid #94a3b8 !important;
+    padding: 3px 5px !important;
+    font-weight: 700;
+    text-align: left;
+}
+
+.print-campanha-table td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 2.5px 5px !important;
+    color: #0f172a !important;
+    background: #ffffff !important;
+}
+
+.print-campanha-table tr.subtotal-row td {
+    background-color: #f8fafc !important;
+    font-weight: 700;
+    border-top: 1.5px solid #64748b !important;
+}
+
+.print-campanha-grand-total {
+    background-color: #0f172a !important;
+    color: #ffffff !important;
+    padding: 8px 12px;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    font-size: 8pt;
+    font-weight: bold;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+
+.print-campanha-footer {
+    margin-top: 10px;
+    border-top: 1px solid #cbd5e1;
+    padding-top: 4px;
+    font-size: 7pt;
+    color: #64748b;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+
+/* Regras Estritas de Quebra de Página e Impressão Geral (@media print) */
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 8mm 8mm 10mm 8mm;
+    }
+
+    body.printing-campanha-report {
+        background: #ffffff !important;
+        color: #0f172a !important;
+    }
+
+    /* Fallback caso a impressão ocorra diretamente da tela do módulo */
+    .client-group-card {
+        border: 1px solid #cbd5e1 !important;
+        background: #ffffff !important;
+        color: #0f172a !important;
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+        margin-bottom: 1rem !important;
+        box-shadow: none !important;
+    }
+    .client-group-header {
+        background: #f1f5f9 !important;
+        border-bottom: 2px solid #94a3b8 !important;
+        color: #0f172a !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+    }
+    .client-group-body {
+        display: block !important;
+        background: #ffffff !important;
+        padding: 0.5rem !important;
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+    }
+    .client-name-fantasia {
+        color: #0f172a !important;
+    }
+    .client-header-chevron {
+        display: none !important;
+    }
+    .os-card {
+        border: 1px solid #cbd5e1 !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        margin-bottom: 0.75rem !important;
+    }
+    .table-subitems {
+        border: 1px solid #cbd5e1 !important;
+        background: #ffffff !important;
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+    }
+    .table-subitems thead {
+        display: table-header-group !important;
+    }
+    .table-subitems tr {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+    }
+    .table-subitems th {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border-bottom: 1px solid #94a3b8 !important;
+    }
+    .table-subitems td {
+        color: #0f172a !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+    }
+    .table-subitems tr.subtotal-row td {
+        background: #f8fafc !important;
+        color: #0f172a !important;
+        border-top: 1px solid #94a3b8 !important;
+    }
+    .client-stat-badge {
+        border: 1px solid #94a3b8 !important;
+        background: #ffffff !important;
+        color: #0f172a !important;
+    }
 }

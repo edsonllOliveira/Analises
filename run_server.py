@@ -48,6 +48,18 @@ def get_local_ip():
         except Exception:
             return "127.0.0.1"
 
+def launch_browser(target_url):
+    try:
+        opened = webbrowser.open(target_url)
+        if not opened and sys.platform.startswith("win"):
+            os.system(f'start "" "{target_url}"')
+    except Exception:
+        if sys.platform.startswith("win"):
+            try:
+                os.system(f'start "" "{target_url}"')
+            except Exception:
+                pass
+
 def main():
     print("=" * 70)
     print("  ASPHERIC ANALYTICS - GESTÃO FISCAL, ORDENS DE SERVIÇO & ANÁLISES")
@@ -69,7 +81,7 @@ def main():
         print(f"    - Acesso Local   : {url}")
         print(f"    - Acesso na Rede : http://{local_ip}:{DEFAULT_PORT}")
         print("[+] Abrindo a aplicação no seu navegador...")
-        webbrowser.open(url)
+        launch_browser(url)
         return
 
     # 2. If port 8011 is occupied by something else, find an available port
@@ -83,8 +95,8 @@ def main():
     print("\n[+] Pressione Ctrl+C para encerrar o servidor.\n")
     
     def open_browser():
-        time.sleep(1.0)
-        webbrowser.open(url)
+        time.sleep(1.2)
+        launch_browser(url)
         
     threading.Thread(target=open_browser, daemon=True).start()
     
