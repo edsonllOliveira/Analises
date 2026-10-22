@@ -1064,18 +1064,20 @@ const tabProdutos = document.getElementById('tabProdutos');
 const tabTopClientes = document.getElementById('tabTopClientes');
 const tabClientesFamilia = document.getElementById('tabClientesFamilia');
 const tabCampanhas = document.getElementById('tabCampanhas');
+const tabVTA = document.getElementById('tabVTA');
 const sectionOS = document.getElementById('sectionOS');
 const sectionClientes = document.getElementById('sectionClientes');
 const sectionProdutos = document.getElementById('sectionProdutos');
 const sectionTopClientes = document.getElementById('sectionTopClientes');
 const sectionClientesFamilia = document.getElementById('sectionClientesFamilia');
 const sectionCampanhas = document.getElementById('sectionCampanhas');
+const sectionVTA = document.getElementById('sectionVTA');
 
 function switchActiveTab(activeBtn, activeSection) {
-    [tabOS, tabClientes, tabProdutos, tabTopClientes, tabClientesFamilia, tabCampanhas].forEach(tab => {
+    [tabOS, tabClientes, tabProdutos, tabTopClientes, tabClientesFamilia, tabCampanhas, tabVTA].forEach(tab => {
         if (tab) tab.classList.remove('active');
     });
-    [sectionOS, sectionClientes, sectionProdutos, sectionTopClientes, sectionClientesFamilia, sectionCampanhas].forEach(sec => {
+    [sectionOS, sectionClientes, sectionProdutos, sectionTopClientes, sectionClientesFamilia, sectionCampanhas, sectionVTA].forEach(sec => {
         if (sec) sec.classList.add('hidden');
     });
 
@@ -1131,6 +1133,12 @@ if (tabCampanhas) {
         if (campanhaSelect && campanhaSelect.options.length <= 1) {
             loadCampanhasList();
         }
+    });
+}
+
+if (tabVTA) {
+    tabVTA.addEventListener('click', () => {
+        switchActiveTab(tabVTA, sectionVTA);
     });
 }
 
@@ -5298,7 +5306,826 @@ if (btnPeriodoLimpar) {
     });
 }
 
+// ============================================================
+// MÓDULO: ANÁLISE DE VTA E DETECÇÃO DE SIMILARIDADES
+// ============================================================
+const vtaDateInicio = document.getElementById('vtaDateInicio');
+const vtaDateFim = document.getElementById('vtaDateFim');
+const vtaSearchClientInput = document.getElementById('vtaSearchClientInput');
+const btnClearVtaClientSearch = document.getElementById('btnClearVtaClientSearch');
+const vtaClientAutocompleteList = document.getElementById('vtaClientAutocompleteList');
+const vtaLimitSelect = document.getElementById('vtaLimitSelect');
+const vtaOnlySuspects = document.getElementById('vtaOnlySuspects');
+const btnSearchVta = document.getElementById('btnSearchVta');
+const btnClearVta = document.getElementById('btnClearVta');
+const btnExportVtaCsv = document.getElementById('btnExportVtaCsv');
+const btnPrintVta = document.getElementById('btnPrintVta');
+const btnExpandAllVta = document.getElementById('btnExpandAllVta');
+const btnCollapseAllVta = document.getElementById('btnCollapseAllVta');
+
+// Stats Bar Elements
+const statVtaClientes = document.getElementById('statVtaClientes');
+const statVtaOS = document.getElementById('statVtaOS');
+const statVtaTotalGeral = document.getElementById('statVtaTotalGeral');
+const statVtaSuspeitas = document.getElementById('statVtaSuspeitas');
+const statVtaOsSuspeitas = document.getElementById('statVtaOsSuspeitas');
+const statVtaClientesSuspeitos = document.getElementById('statVtaClientesSuspeitos');
+const vtaResultBadge = document.getElementById('vtaResultBadge');
+const vtaSuspectsBadge = document.getElementById('vtaSuspectsBadge');
+const vtaReportContent = document.getElementById('vtaReportContent');
+const printVtaReportContainer = document.getElementById('printVtaReportContainer');
+
+// State
+let currentVtaReportData = null;
+let vtaSelectedClientCod = null;
+let vtaClientDebounceTimeout = null;
+
+// Autocomplete de Clientes para VTA
+if (vtaSearchClientInput) {
+    vtaSearchClientInput.addEventListener('input', (e) => {
+        const val = e.target.value.trim();
+        if (vtaSelectedClientCod && val !== '') {
+            vtaSelectedClientCod = null;
+        }
+        if (btnClearVtaClientSearch) {
+            btnClearVtaClientSearch.classList.toggle('hidden', val.length === 0);
+        }
+        clearTimeout(vtaClientDebounceTimeout);
+        if (val.length < 2) {
+            if (vtaClientAutocompleteList) vtaClientAutocompleteList.classList.add('hidden');
+            return;
+        }
+        vtaClientDebounceTimeout = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/clientes/buscar?q=${encodeURIComponent(val)}`);
+                if (!res.ok) throw new Error('Falha ao buscar clientes');
+                const data = await res.json();
+                renderVtaClientAutocomplete(data.clientes || []);
+            } catch (err) {
+                console.error('Erro no autocomplete VTA:', err);
+            }
+        }, 250);
+    });
+}
+
+if (btnClearVtaClientSearch) {
+    btnClearVtaClientSearch.addEventListener('click', () => {
+        if (vtaSearchClientInput) vtaSearchClientInput.value = '';
+        vtaSelectedClientCod = null;
+        btnClearVtaClientSearch.classList.add('hidden');
+        if (vtaClientAutocompleteList) vtaClientAutocompleteList.classList.add('hidden');
+    });
+}
+
+function renderVtaClientAutocomplete(items) {
+    if (!vtaClientAutocompleteList) return;
+    if (!items || items.length === 0) {
+        vtaClientAutocompleteList.innerHTML = '<div class="autocomplete-no-results">Nenhum cliente encontrado</div>';
+        vtaClientAutocompleteList.classList.remove('hidden');
+        return;
+    }
+    vtaClientAutocompleteList.innerHTML = items.map(c => `
+        <div class="autocomplete-item" data-cod="${c.cod_pessoa}" data-nome="${c.nome_fantasia || c.razao_social || ''}">
+            <div class="item-main"><strong>${c.nome_fantasia || c.razao_social || 'Cliente ' + c.cod_pessoa}</strong></div>
+            <div class="item-sub">Cód: ${c.cod_pessoa} • ${c.cidade || ''} - ${c.uf || ''} ${c.cnpj_cpf ? '• ' + c.cnpj_cpf : ''}</div>
+        </div>
+    `).join('');
+    vtaClientAutocompleteList.classList.remove('hidden');
+
+    vtaClientAutocompleteList.querySelectorAll('.autocomplete-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const cod = el.getAttribute('data-cod');
+            const nome = el.getAttribute('data-nome');
+            vtaSelectedClientCod = cod;
+            if (vtaSearchClientInput) vtaSearchClientInput.value = `${nome} (${cod})`;
+            if (btnClearVtaClientSearch) btnClearVtaClientSearch.classList.remove('hidden');
+            vtaClientAutocompleteList.classList.add('hidden');
+        });
+    });
+}
+
+document.addEventListener('click', (e) => {
+    if (vtaClientAutocompleteList && !e.target.closest('#sectionVTA .autocomplete-wrapper')) {
+        vtaClientAutocompleteList.classList.add('hidden');
+    }
+});
+
+// Busca da Análise de VTA
+async function searchVtaReport() {
+    if (!vtaReportContent) return;
+
+    vtaReportContent.innerHTML = `
+        <div class="loading-state" style="padding: 3rem 1rem; text-align: center; color: var(--text-secondary);">
+            <div class="spinner" style="width: 40px; height: 40px; margin: 0 auto 1rem auto; border: 4px solid var(--border-color); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+            <h3>Analisando Ordens de Serviço VTA...</h3>
+            <p style="margin-top: 0.25rem;">Cruzando informações de datas, valores e similaridade de pacientes entre as OSs.</p>
+        </div>
+    `;
+
+    try {
+        const dtIni = vtaDateInicio ? vtaDateInicio.value : '';
+        const dtFim = vtaDateFim ? vtaDateFim.value : '';
+        const clienteTerm = vtaSelectedClientCod || (vtaSearchClientInput ? vtaSearchClientInput.value.trim() : '');
+        const limitVal = vtaLimitSelect ? vtaLimitSelect.value : '1000';
+        const onlySuspectsVal = vtaOnlySuspects ? vtaOnlySuspects.checked : false;
+
+        const params = new URLSearchParams();
+        if (dtIni) params.append('data_inicio', dtIni);
+        if (dtFim) params.append('data_fim', dtFim);
+        if (clienteTerm) params.append('cliente', clienteTerm);
+        params.append('somente_suspeitas', onlySuspectsVal ? 'true' : 'false');
+        params.append('limit', limitVal);
+
+        const res = await fetch(`/api/vta/analise?${params.toString()}`);
+        if (!res.ok) {
+            const errJson = await res.json().catch(() => ({}));
+            throw new Error(errJson.detail || 'Erro ao carregar análise de VTA');
+        }
+
+        const data = await res.json();
+        renderVtaReport(data);
+    } catch (err) {
+        console.error('Erro ao buscar análise de VTA:', err);
+        showToast(err.message || 'Erro ao carregar análise de VTA', 'error');
+        vtaReportContent.innerHTML = `
+            <div class="empty-state" style="padding: 3rem 1rem; text-align: center; color: #ef4444;">
+                <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">⚠️</div>
+                <h3>Falha ao carregar análise de VTA</h3>
+                <p style="margin-top: 0.25rem;">${err.message || 'Ocorreu um erro ao comunicar com o servidor.'}</p>
+            </div>
+        `;
+    }
+}
+
+// Renderização do Relatório na Tela
+function renderVtaReport(data) {
+    currentVtaReportData = data;
+    const totais = data.totais || {};
+    const clientes = data.clientes || [];
+
+    // Atualiza Stats Bar
+    if (statVtaClientes) statVtaClientes.textContent = (totais.total_clientes || 0).toLocaleString('pt-BR');
+    if (statVtaOS) statVtaOS.textContent = (totais.total_os || 0).toLocaleString('pt-BR');
+    if (statVtaTotalGeral) statVtaTotalGeral.textContent = `R$ ${formatMoney(totais.total_faturamento || 0)}`;
+    if (statVtaSuspeitas) statVtaSuspeitas.textContent = (totais.total_suspeitas || 0).toLocaleString('pt-BR');
+    if (statVtaOsSuspeitas) statVtaOsSuspeitas.textContent = (totais.total_os_suspeitas || 0).toLocaleString('pt-BR');
+    if (statVtaClientesSuspeitos) statVtaClientesSuspeitos.textContent = (totais.total_clientes_suspeitos || 0).toLocaleString('pt-BR');
+
+    if (vtaResultBadge) {
+        vtaResultBadge.textContent = `${totais.total_clientes || 0} clientes (${totais.total_os || 0} OSs)`;
+    }
+    if (vtaSuspectsBadge) {
+        vtaSuspectsBadge.textContent = `${totais.total_suspeitas || 0} alertas de duplicidade`;
+    }
+
+    if (!clientes || clientes.length === 0) {
+        vtaReportContent.innerHTML = `
+            <div class="empty-state" style="padding: 3rem 1rem; text-align: center; color: var(--text-secondary);">
+                <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🔍</div>
+                <h3>Nenhuma OS de VTA encontrada</h3>
+                <p style="margin-top: 0.25rem;">Não foram localizadas Ordens de Serviço com os critérios informados.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const autoExpand = clientes.length <= 15;
+
+    const cardsHtml = clientes.map((c, idx) => {
+        const isExpanded = autoExpand || c.tem_similaridade;
+        const chevronIcon = isExpanded ? '▼' : '▶';
+
+        let calloutHtml = '';
+        if (c.casos_similaridade && c.casos_similaridade.length > 0) {
+            const listItems = c.casos_similaridade.map(caso => {
+                const badgeGrau = caso.grau === 'alta' ? '🔴 ALTA' : (caso.grau === 'media' ? '🟠 MÉDIA' : '🟡 ATENÇÃO');
+                return `<li><strong>[${badgeGrau}]</strong> OS #${caso.os1_num} & OS #${caso.os2_num} em ${caso.data}: ${caso.motivo}</li>`;
+            }).join('');
+            calloutHtml = `
+                <div class="vta-similarity-callout">
+                    <div class="vta-similarity-callout-header">
+                        <span>⚠️ Detectadas ${c.casos_similaridade.length} suspeita(s) de duplicidade para este cliente (mesma data, mesmo valor, mesma armação e paciente ≥ 98%):</span>
+                    </div>
+                    <ul>${listItems}</ul>
+                </div>
+            `;
+        }
+
+        const osCardsHtml = (c.ordens_servico || []).map(os => {
+            let suspectClass = '';
+            if (os.grau_suspeita === 'alta') suspectClass = 'suspect-high';
+            else if (os.grau_suspeita === 'media') suspectClass = 'suspect-medium';
+            else if (os.grau_suspeita === 'baixa') suspectClass = 'suspect-low';
+
+            let alertRibbonHtml = '';
+            if (os.similaridades && os.similaridades.length > 0) {
+                const firstSim = os.similaridades[0];
+                const ribbonClass = firstSim.grau === 'media' ? 'medium' : '';
+                alertRibbonHtml = `
+                    <div class="vta-os-alert-ribbon ${ribbonClass}">
+                        <span>⚠️ Alerta de Duplicidade:</span>
+                        <span>Possível duplicidade com OS #${firstSim.os_relacionada_num} (${firstSim.data}, R$ ${formatMoney(firstSim.outro_valor)}) • ${firstSim.motivo}</span>
+                    </div>
+                `;
+            }
+
+            const lentesRows = (os.lentes || []).map(l => `
+                <tr>
+                    <td><strong>${l.cod_item}</strong></td>
+                    <td>${l.descricao}</td>
+                    <td class="text-center">${l.quantidade}</td>
+                    <td class="text-right">R$ ${formatMoney(l.valor_unitario)}</td>
+                    <td class="text-right">${l.perc_desconto > 0 ? l.perc_desconto.toFixed(1) + '%' : '-'}</td>
+                    <td class="text-right font-bold">R$ ${formatMoney(l.total)}</td>
+                </tr>
+            `).join('');
+
+            const servicosRows = (os.servicos || []).map(s => `
+                <tr style="color: var(--text-secondary);">
+                    <td><strong>${s.cod_item}</strong></td>
+                    <td>${s.descricao}</td>
+                    <td class="text-center">${s.quantidade}</td>
+                    <td class="text-right">R$ ${formatMoney(s.valor_unitario)}</td>
+                    <td class="text-right">${s.perc_desconto > 0 ? s.perc_desconto.toFixed(1) + '%' : '-'}</td>
+                    <td class="text-right font-bold">R$ ${formatMoney(s.total)}</td>
+                </tr>
+            `).join('');
+
+            let itemsTableHtml = '';
+            if (lentesRows || servicosRows) {
+                itemsTableHtml = `
+                    <table class="table-subitems" style="width: 100%; font-size: 0.78rem; margin-top: 0.5rem; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+                                <th style="width: 80px;">Cód.</th>
+                                <th>Item / Descrição</th>
+                                <th class="text-center" style="width: 50px;">Qtd</th>
+                                <th class="text-right" style="width: 90px;">Valor Unit.</th>
+                                <th class="text-right" style="width: 75px;">Desc.</th>
+                                <th class="text-right" style="width: 95px;">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${lentesRows}
+                            ${servicosRows}
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            return `
+                <div class="os-card ${suspectClass}" style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg, #1e293b); margin-bottom: 0.65rem;">
+                    ${alertRibbonHtml}
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                            <span style="font-weight: 800; font-size: 0.95rem; color: #38bdf8;">OS #${os.numeroordemservico}</span>
+                            <span class="badge" style="font-size: 0.72rem;">📅 ${os.data_emissao}</span>
+                            <span class="badge" style="font-size: 0.72rem; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">${os.origem_vta}</span>
+                            ${os.situacao_os ? `<span class="badge" style="font-size: 0.72rem; color: var(--text-secondary);">${os.situacao_os}</span>` : ''}
+                        </div>
+                        <div style="font-size: 0.95rem; font-weight: 800; color: #4ade80;">
+                            R$ ${formatMoney(os.total)}
+                        </div>
+                    </div>
+
+                    <div class="vta-os-meta-grid">
+                        <div class="vta-meta-item">
+                            <span class="vta-meta-label">Paciente</span>
+                            <span class="vta-meta-value" style="color: ${os.nome_paciente ? 'var(--text-primary)' : 'var(--text-secondary)'};">
+                                ${os.nome_paciente || '<em>(Não informado)</em>'}
+                            </span>
+                        </div>
+                        <div class="vta-meta-item">
+                            <span class="vta-meta-label">Referência</span>
+                            <span class="vta-meta-value">${os.referencia || '-'}</span>
+                        </div>
+                        <div class="vta-meta-item">
+                            <span class="vta-meta-label">Armação</span>
+                            <span class="vta-meta-value">${os.descricao_armacao || '-'}</span>
+                        </div>
+                    </div>
+
+                    ${itemsTableHtml}
+                </div>
+            `;
+        }).join('');
+
+        let clientAlertBadge = '';
+        if (c.tem_similaridade) {
+            clientAlertBadge = `<span class="badge-similarity-high" title="Casos de duplicidade detectados">⚠️ ${c.qtd_casos_similaridade} ${c.qtd_casos_similaridade === 1 ? 'Duplicidade' : 'Duplicidades'}</span>`;
+        }
+
+        return `
+            <div class="client-group-card ${isExpanded ? 'open' : ''}" data-client-cod="${c.cod_pessoa}">
+                <div class="client-group-header" onclick="toggleVtaClientAccordion(this)">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span class="client-header-chevron">${chevronIcon}</span>
+                        <div>
+                            <div class="client-name-fantasia" style="font-weight: 700; font-size: 0.95rem;">
+                                ${c.nome_fantasia}
+                            </div>
+                            <div class="client-header-sub" style="font-size: 0.78rem; color: var(--text-secondary);">
+                                Cód: ${c.identificador || c.cod_pessoa} • ${c.cidade || ''} - ${c.uf || ''} ${c.cnpj ? '• CNPJ: ' + c.cnpj : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="client-header-badges" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        ${clientAlertBadge}
+                        <span class="client-stat-badge">📦 ${c.total_os} OS</span>
+                        <span class="client-stat-badge" style="color: #4ade80; font-weight: 700;">R$ ${formatMoney(c.total_faturamento)}</span>
+                    </div>
+                </div>
+                <div class="client-group-body" style="padding: 0.75rem;">
+                    ${calloutHtml}
+                    ${osCardsHtml}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    vtaReportContent.innerHTML = cardsHtml;
+}
+
+// Toggle Individual Client Accordion
+window.toggleVtaClientAccordion = function(headerEl) {
+    const card = headerEl.closest('.client-group-card');
+    if (!card) return;
+    const chevron = card.querySelector('.client-header-chevron');
+    const isOpen = card.classList.toggle('open');
+    if (chevron) {
+        chevron.textContent = isOpen ? '▼' : '▶';
+    }
+};
+
+// Expand / Collapse All
+function expandAllVta() {
+    if (!vtaReportContent) return;
+    vtaReportContent.querySelectorAll('.client-group-card').forEach(c => {
+        c.classList.add('open');
+        const ch = c.querySelector('.client-header-chevron');
+        if (ch) ch.textContent = '▼';
+    });
+}
+
+function collapseAllVta() {
+    if (!vtaReportContent) return;
+    vtaReportContent.querySelectorAll('.client-group-card').forEach(c => {
+        c.classList.remove('open');
+        const ch = c.querySelector('.client-header-chevron');
+        if (ch) ch.textContent = '▶';
+    });
+}
+
+// Clear Filters
+function clearVtaFilters() {
+    if (vtaDateInicio) vtaDateInicio.value = '';
+    if (vtaDateFim) vtaDateFim.value = '';
+    if (vtaSearchClientInput) vtaSearchClientInput.value = '';
+    vtaSelectedClientCod = null;
+    if (btnClearVtaClientSearch) btnClearVtaClientSearch.classList.add('hidden');
+    if (vtaLimitSelect) vtaLimitSelect.value = '1000';
+    if (vtaOnlySuspects) vtaOnlySuspects.checked = false;
+    if (vtaReportContent) {
+        vtaReportContent.innerHTML = `
+            <div class="empty-state" style="padding: 3rem 1rem; text-align: center; color: var(--text-secondary);">
+                <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🔬</div>
+                <h3>Filtros limpos</h3>
+                <p style="margin-top: 0.25rem;">Informe o período ou filtros desejados e clique em <strong>Filtrar</strong> para analisar as OSs de VTA.</p>
+            </div>
+        `;
+    }
+    if (statVtaClientes) statVtaClientes.textContent = '0';
+    if (statVtaOS) statVtaOS.textContent = '0';
+    if (statVtaTotalGeral) statVtaTotalGeral.textContent = 'R$ 0,00';
+    if (statVtaSuspeitas) statVtaSuspeitas.textContent = '0';
+    if (statVtaOsSuspeitas) statVtaOsSuspeitas.textContent = '0';
+    if (statVtaClientesSuspeitos) statVtaClientesSuspeitos.textContent = '0';
+    if (vtaResultBadge) vtaResultBadge.textContent = '0 clientes';
+    if (vtaSuspectsBadge) vtaSuspectsBadge.textContent = '0 alertas de duplicidade';
+}
+
+// Export to CSV / Excel
+function exportVtaCsv() {
+    if (!currentVtaReportData || !currentVtaReportData.clientes || currentVtaReportData.clientes.length === 0) {
+        showToast('Nenhum dado para exportar. Realize uma pesquisa primeiro.', 'warning');
+        return;
+    }
+
+    const rows = [];
+    rows.push([
+        'Cód. Cliente',
+        'Nome Fantasia',
+        'Razão Social',
+        'CNPJ / CPF',
+        'Cidade',
+        'UF',
+        'Nº OS',
+        'Cód. OS',
+        'Data Emissão',
+        'Situação OS',
+        'Origem VTA',
+        'Nome Paciente',
+        'Referência',
+        'Descrição Armação',
+        'Grau de Suspeita',
+        'Alertas de Similaridade / Duplicidade',
+        'Tipo Item',
+        'Cód. Item',
+        'Descrição do Item',
+        'Família',
+        'Qtd',
+        'Valor Unitário (R$)',
+        'Desconto (R$)',
+        'Total do Item (R$)',
+        'Total Geral da OS (R$)'
+    ]);
+
+    currentVtaReportData.clientes.forEach(client => {
+        (client.ordens_servico || []).forEach(os => {
+            const similaridadesStr = (os.similaridades || []).map(s => `OS #${s.os_relacionada_num}: ${s.motivo}`).join(' | ');
+            const allItems = [...(os.lentes || []).map(l => ({ ...l, tipo: 'Lente (Produto)' })), ...(os.servicos || []).map(s => ({ ...s, tipo: 'Serviço' }))];
+
+            if (allItems.length === 0) {
+                rows.push([
+                    client.identificador || client.cod_pessoa,
+                    client.nome_fantasia,
+                    client.razao_social,
+                    client.cnpj || client.cpf || '',
+                    client.cidade,
+                    client.uf,
+                    os.numeroordemservico,
+                    os.cod_ordemservico,
+                    os.data_emissao,
+                    os.situacao_os,
+                    os.origem_vta,
+                    os.nome_paciente || '',
+                    os.referencia || '',
+                    os.descricao_armacao || '',
+                    os.grau_suspeita || 'Nenhum',
+                    similaridadesStr,
+                    '', '', '', '', '', '', '', '',
+                    os.total.toFixed(2).replace('.', ',')
+                ]);
+            } else {
+                allItems.forEach(it => {
+                    rows.push([
+                        client.identificador || client.cod_pessoa,
+                        client.nome_fantasia,
+                        client.razao_social,
+                        client.cnpj || client.cpf || '',
+                        client.cidade,
+                        client.uf,
+                        os.numeroordemservico,
+                        os.cod_ordemservico,
+                        os.data_emissao,
+                        os.situacao_os,
+                        os.origem_vta,
+                        os.nome_paciente || '',
+                        os.referencia || '',
+                        os.descricao_armacao || '',
+                        os.grau_suspeita || 'Nenhum',
+                        similaridadesStr,
+                        it.tipo,
+                        it.cod_item,
+                        it.descricao,
+                        it.familia || '',
+                        it.quantidade,
+                        it.valor_unitario.toFixed(2).replace('.', ','),
+                        it.desconto_total.toFixed(2).replace('.', ','),
+                        it.total.toFixed(2).replace('.', ','),
+                        os.total.toFixed(2).replace('.', ',')
+                    ]);
+                });
+            }
+        });
+    });
+
+    const csvContent = '\uFEFF' + rows.map(e => e.map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const dateStr = new Date().toISOString().substring(0, 10);
+    link.setAttribute('download', `analise_vta_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Planilha Excel/CSV gerada com sucesso!', 'success');
+}
+
+// Impressão Formal do Relatório de VTA
+function printVtaReport() {
+    if (!currentVtaReportData || !currentVtaReportData.clientes || currentVtaReportData.clientes.length === 0) {
+        showToast('Nenhum dado para imprimir. Realize uma pesquisa primeiro.', 'warning');
+        return;
+    }
+
+    if (!printVtaReportContainer) {
+        showToast('Contêiner de impressão não localizado.', 'error');
+        return;
+    }
+
+    const totais = currentVtaReportData.totais || {};
+    const filtros = currentVtaReportData.filtros || {};
+    const clientes = currentVtaReportData.clientes || [];
+
+    const now = new Date();
+    const emissaoStr = now.toLocaleDateString('pt-BR') + ' às ' + now.toLocaleTimeString('pt-BR');
+
+    let periodoStr = 'Todo o Histórico';
+    if (filtros.data_inicio && filtros.data_fim) {
+        periodoStr = `${formatDateBR(filtros.data_inicio)} até ${formatDateBR(filtros.data_fim)}`;
+    } else if (filtros.data_inicio) {
+        periodoStr = `A partir de ${formatDateBR(filtros.data_inicio)}`;
+    } else if (filtros.data_fim) {
+        periodoStr = `Até ${formatDateBR(filtros.data_fim)}`;
+    }
+
+    const clientBlocksHtml = clientes.map(c => {
+        let alertCalloutPrint = '';
+        if (c.casos_similaridade && c.casos_similaridade.length > 0) {
+            const listItems = c.casos_similaridade.map(caso => {
+                return `<li><strong>[ALERTA DE DUPLICIDADE]</strong> OS #${caso.os1_num} & OS #${caso.os2_num} em ${caso.data}: ${caso.motivo}</li>`;
+            }).join('');
+            alertCalloutPrint = `
+                <div style="background: #fee2e2; border: 1px solid #dc2626; border-radius: 3px; padding: 4px 6px; margin-bottom: 6px; font-size: 7.2pt; color: #991b1b;">
+                    <div style="font-weight: 700; margin-bottom: 2px;">⚠️ ALERTA: Detectadas similaridades suspeitas para este cliente:</div>
+                    <ul style="margin: 0; padding-left: 12px;">${listItems}</ul>
+                </div>
+            `;
+        }
+
+        const osBlocksHtml = (c.ordens_servico || []).map(os => {
+            const hasAlert = os.similaridades && os.similaridades.length > 0;
+            const alertClass = hasAlert ? 'has-alert' : '';
+
+            let alertBadgePrint = '';
+            if (hasAlert) {
+                alertBadgePrint = `<span style="background: #dc2626; color: #ffffff; padding: 1px 5px; border-radius: 3px; font-size: 6.8pt; font-weight: 700;">⚠️ SIMILARIDADE SUSPEITA</span>`;
+            }
+
+            const lentesRows = (os.lentes || []).map(l => `
+                <tr>
+                    <td style="font-weight: 700;">${l.cod_item}</td>
+                    <td>${l.descricao}</td>
+                    <td style="text-align: center;">${l.quantidade}</td>
+                    <td style="text-align: right;">R$ ${formatMoney(l.valor_unitario)}</td>
+                    <td style="text-align: right;">${l.perc_desconto > 0 ? l.perc_desconto.toFixed(1) + '%' : '-'}</td>
+                    <td style="text-align: right; font-weight: 700;">R$ ${formatMoney(l.total)}</td>
+                </tr>
+            `).join('');
+
+            const servicosRows = (os.servicos || []).map(s => `
+                <tr style="color: #475569;">
+                    <td style="font-weight: 700;">${s.cod_item}</td>
+                    <td>${s.descricao}</td>
+                    <td style="text-align: center;">${s.quantidade}</td>
+                    <td style="text-align: right;">R$ ${formatMoney(s.valor_unitario)}</td>
+                    <td style="text-align: right;">${s.perc_desconto > 0 ? s.perc_desconto.toFixed(1) + '%' : '-'}</td>
+                    <td style="text-align: right; font-weight: 700;">R$ ${formatMoney(s.total)}</td>
+                </tr>
+            `).join('');
+
+            let tablePrint = '';
+            if (lentesRows || servicosRows) {
+                tablePrint = `
+                    <table class="print-vta-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 70px;">Cód.</th>
+                                <th>Item / Descrição</th>
+                                <th style="width: 45px; text-align: center;">Qtd</th>
+                                <th style="width: 80px; text-align: right;">Unitário</th>
+                                <th style="width: 65px; text-align: right;">Desc.</th>
+                                <th style="width: 85px; text-align: right;">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${lentesRows}
+                            ${servicosRows}
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            return `
+                <div class="print-vta-os-block ${alertClass}">
+                    <div class="print-vta-os-header">
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <span class="print-vta-os-title">OS #${os.numeroordemservico}</span>
+                            <span style="font-size: 7.2pt; color: #475569;">Emissão: ${os.data_emissao}</span>
+                            <span style="font-size: 7pt; font-weight: 600; color: #1e40af;">[${os.origem_vta}]</span>
+                            ${alertBadgePrint}
+                        </div>
+                        <div style="font-size: 8pt; font-weight: 800; color: #15803d;">
+                            Total: R$ ${formatMoney(os.total)}
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; font-size: 7.2pt; background: #f8fafc; padding: 2px 6px; border: 1px solid #e2e8f0; border-radius: 2px; margin-bottom: 3px;">
+                        <span><strong>Paciente:</strong> ${os.nome_paciente || '(Não informado)'}</span>
+                        ${os.referencia ? `<span><strong>Ref:</strong> ${os.referencia}</span>` : ''}
+                        ${os.descricao_armacao ? `<span><strong>Armação:</strong> ${os.descricao_armacao}</span>` : ''}
+                    </div>
+
+                    ${tablePrint}
+                </div>
+            `;
+        }).join('');
+
+        let clientAlertBadgePrint = '';
+        if (c.tem_similaridade) {
+            clientAlertBadgePrint = `<span style="background: #dc2626; color: #ffffff; padding: 2px 6px; border-radius: 3px; font-size: 7pt; font-weight: 700;">⚠️ ${c.qtd_casos_similaridade} ${c.qtd_casos_similaridade === 1 ? 'Similaridade' : 'Similaridades'}</span>`;
+        }
+
+        return `
+            <div class="print-vta-client-block">
+                <div class="print-vta-client-header">
+                    <div>
+                        <div class="print-vta-client-title">
+                            ${c.nome_fantasia}
+                        </div>
+                        <div class="print-vta-client-sub">
+                            Cód: ${c.identificador || c.cod_pessoa} • ${c.cidade || ''} - ${c.uf || ''} ${c.cnpj ? '• CNPJ: ' + c.cnpj : ''}
+                        </div>
+                    </div>
+                    <div class="print-vta-client-badges">
+                        ${clientAlertBadgePrint}
+                        <span class="print-vta-badge">📦 ${c.total_os} OS</span>
+                        <span class="print-vta-badge" style="font-weight: 800; color: #15803d;">R$ ${formatMoney(c.total_faturamento)}</span>
+                    </div>
+                </div>
+                <div class="print-vta-client-body">
+                    ${alertCalloutPrint}
+                    ${osBlocksHtml}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    printVtaReportContainer.innerHTML = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; padding: 4px;">
+            <!-- Cabeçalho Formal do Relatório -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2563eb; padding-bottom: 6px; margin-bottom: 8px;">
+                <div>
+                    <h1 style="font-size: 13pt; font-weight: 800; color: #1e3a8a; margin: 0; text-transform: uppercase; letter-spacing: 0.02em;">
+                        Relatório Executivo de Análise de VTA e Similaridades
+                    </h1>
+                    <div style="font-size: 7.5pt; color: #475569; margin-top: 2px;">
+                        Laboratório Óptico • Aspheric Analytics • Dilab Firebird Integration
+                    </div>
+                </div>
+                <div style="text-align: right; font-size: 7.2pt; color: #475569; line-height: 1.3;">
+                    <div><strong>Emissão:</strong> ${emissaoStr}</div>
+                    <div><strong>Período:</strong> ${periodoStr}</div>
+                    <div><strong>Filtro:</strong> ${filtros.cliente ? 'Cliente: ' + filtros.cliente : 'Todos os Clientes'}</div>
+                </div>
+            </div>
+
+            <!-- Resumo Executivo em Cards -->
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px;">
+                <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 6px;">
+                    <div style="font-size: 6.8pt; color: #475569; text-transform: uppercase;">Total Clientes VTA</div>
+                    <div style="font-size: 10pt; font-weight: 800; color: #1e3a8a;">${(totais.total_clientes || 0).toLocaleString('pt-BR')}</div>
+                </div>
+                <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; padding: 4px 6px;">
+                    <div style="font-size: 6.8pt; color: #475569; text-transform: uppercase;">Total Ordens de Serviço</div>
+                    <div style="font-size: 10pt; font-weight: 800; color: #0f172a;">${(totais.total_os || 0).toLocaleString('pt-BR')}</div>
+                </div>
+                <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 4px 6px;">
+                    <div style="font-size: 6.8pt; color: #166534; text-transform: uppercase;">Faturamento Total VTA</div>
+                    <div style="font-size: 10pt; font-weight: 800; color: #15803d;">R$ ${formatMoney(totais.total_faturamento || 0)}</div>
+                </div>
+                <div style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; padding: 4px 6px;">
+                    <div style="font-size: 6.8pt; color: #991b1b; text-transform: uppercase;">Similaridades Detectadas</div>
+                    <div style="font-size: 10pt; font-weight: 800; color: #dc2626;">${totais.total_suspeitas || 0} Casos</div>
+                </div>
+            </div>
+
+            <!-- Listagem Agrupada por Cliente -->
+            <div>
+                ${clientBlocksHtml}
+            </div>
+
+            <!-- Totalizador Consolidado -->
+            <div class="print-vta-grand-total">
+                <div>
+                    TOTAL GERAL: ${totais.total_clientes || 0} Clientes • ${totais.total_os || 0} OSs VTA
+                </div>
+                <div>
+                    <span style="margin-right: 14px; color: #fca5a5;">Casos Suspeitos: ${totais.total_suspeitas || 0}</span>
+                    <span style="color: #fde047; font-size: 9.5pt;">Faturamento Total: R$ ${formatMoney(totais.total_faturamento || 0)}</span>
+                </div>
+            </div>
+
+            <!-- Rodapé -->
+            <div class="print-vta-footer">
+                <div>Documento gerado eletronicamente em ${emissaoStr}.</div>
+                <div>Aspheric Analytics • Relatório de Análise de VTA e Similaridades</div>
+            </div>
+        </div>
+    `;
+
+    document.body.classList.remove('printing-clientes-familia', 'printing-client-items', 'printing-family-orders', 'printing-os-report', 'printing-campanha-report');
+    document.body.classList.add('printing-vta-report');
+
+    const cleanup = () => {
+        document.body.classList.remove('printing-vta-report');
+        if (printVtaReportContainer) printVtaReportContainer.innerHTML = '';
+        window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setTimeout(() => {
+        window.print();
+        setTimeout(cleanup, 2500);
+    }, 150);
+}
+
+// Event Listeners for VTA Module
+if (btnSearchVta) {
+    btnSearchVta.addEventListener('click', searchVtaReport);
+}
+
+if (btnClearVta) {
+    btnClearVta.addEventListener('click', clearVtaFilters);
+}
+
+if (btnExpandAllVta) {
+    btnExpandAllVta.addEventListener('click', expandAllVta);
+}
+
+if (btnCollapseAllVta) {
+    btnCollapseAllVta.addEventListener('click', collapseAllVta);
+}
+
+if (btnPrintVta) {
+    btnPrintVta.addEventListener('click', printVtaReport);
+}
+
+if (btnExportVtaCsv) {
+    btnExportVtaCsv.addEventListener('click', exportVtaCsv);
+}
+
+if (vtaOnlySuspects) {
+    vtaOnlySuspects.addEventListener('change', () => {
+        searchVtaReport();
+    });
+}
+
+window.searchVtaReport = searchVtaReport;
+window.printVtaReport = printVtaReport;
+window.exportVtaCsv = exportVtaCsv;
+
+// Atalhos de Período para VTA
+const btnVtaPeriodoEsteMes = document.getElementById('btnVtaPeriodoEsteMes');
+const btnVtaPeriodoMesAnterior = document.getElementById('btnVtaPeriodoMesAnterior');
+const btnVtaPeriodoUltimos30 = document.getElementById('btnVtaPeriodoUltimos30');
+const btnVtaPeriodoAnoAtual = document.getElementById('btnVtaPeriodoAnoAtual');
+const btnVtaPeriodoLimpar = document.getElementById('btnVtaPeriodoLimpar');
+
+if (btnVtaPeriodoEsteMes) {
+    btnVtaPeriodoEsteMes.addEventListener('click', () => {
+        if (vtaDateInicio) vtaDateInicio.value = '2026-10-01';
+        if (vtaDateFim) vtaDateFim.value = '2026-10-31';
+        searchVtaReport();
+    });
+}
+
+if (btnVtaPeriodoMesAnterior) {
+    btnVtaPeriodoMesAnterior.addEventListener('click', () => {
+        if (vtaDateInicio) vtaDateInicio.value = '2026-09-01';
+        if (vtaDateFim) vtaDateFim.value = '2026-09-30';
+        searchVtaReport();
+    });
+}
+
+if (btnVtaPeriodoUltimos30) {
+    btnVtaPeriodoUltimos30.addEventListener('click', () => {
+        if (vtaDateInicio) vtaDateInicio.value = '2026-09-21';
+        if (vtaDateFim) vtaDateFim.value = '2026-10-21';
+        searchVtaReport();
+    });
+}
+
+if (btnVtaPeriodoAnoAtual) {
+    btnVtaPeriodoAnoAtual.addEventListener('click', () => {
+        if (vtaDateInicio) vtaDateInicio.value = '2026-01-01';
+        if (vtaDateFim) vtaDateFim.value = '2026-12-31';
+        searchVtaReport();
+    });
+}
+
+if (btnVtaPeriodoLimpar) {
+    btnVtaPeriodoLimpar.addEventListener('click', () => {
+        if (vtaDateInicio) vtaDateInicio.value = '';
+        if (vtaDateFim) vtaDateFim.value = '';
+        searchVtaReport();
+    });
+}
+
 // Initialize Application (Carrega apenas a configuração do sistema e selects, sem disparar buscas pesadas no banco)
+
 document.addEventListener('DOMContentLoaded', async () => {
     try { await loadDatabaseSelector(); } catch (e) { console.error('Erro loadDatabaseSelector:', e); }
     try { await checkStatus(); } catch (e) { console.error('Erro checkStatus:', e); }

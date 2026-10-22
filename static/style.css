@@ -918,13 +918,23 @@ select:focus,
     body.printing-os-report #printFamilyOrdersContainer,
     body.printing-os-report #printClientesFamiliaContainer,
     body.printing-os-report #printCampanhaReportContainer,
+    body.printing-os-report #printVtaReportContainer,
     body.printing-campanha-report .main-content,
     body.printing-campanha-report .modal-overlay,
     body.printing-campanha-report .app-header,
     body.printing-campanha-report #printClientItemsContainer,
     body.printing-campanha-report #printFamilyOrdersContainer,
     body.printing-campanha-report #printClientesFamiliaContainer,
-    body.printing-campanha-report #printOsReportContainer {
+    body.printing-campanha-report #printOsReportContainer,
+    body.printing-campanha-report #printVtaReportContainer,
+    body.printing-vta-report .main-content,
+    body.printing-vta-report .modal-overlay,
+    body.printing-vta-report .app-header,
+    body.printing-vta-report #printClientItemsContainer,
+    body.printing-vta-report #printFamilyOrdersContainer,
+    body.printing-vta-report #printClientesFamiliaContainer,
+    body.printing-vta-report #printOsReportContainer,
+    body.printing-vta-report #printCampanhaReportContainer {
         display: none !important;
     }
 
@@ -972,13 +982,23 @@ select:focus,
         margin: 0 !important;
         padding: 0 !important;
     }
+
+    body.printing-vta-report #printVtaReportContainer {
+        display: block !important;
+        width: 100% !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 }
 
 #printClientItemsContainer,
 #printFamilyOrdersContainer,
 #printClientesFamiliaContainer,
 #printOsReportContainer,
-#printCampanhaReportContainer {
+#printCampanhaReportContainer,
+#printVtaReportContainer {
     display: none;
 }
 
@@ -2472,3 +2492,366 @@ html[data-theme="classico"] .clickable-row:hover td { background: #dbeafe !impor
     padding: 0.6rem 0.6rem;
     font-size: 0.88rem;
 }
+
+/* ============================================================
+   ESTILOS ESPECÍFICOS: MÓDULO ANÁLISE DE VTA E SIMILARIDADES
+   ============================================================ */
+
+.vta-report-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+/* Badges de Similaridade */
+.badge-similarity-high {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border: 1px solid #ef4444;
+    font-weight: 700;
+    padding: 0.25rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.badge-similarity-medium {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+    border: 1px solid #f59e0b;
+    font-weight: 700;
+    padding: 0.25rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.badge-similarity-low {
+    background: rgba(234, 179, 8, 0.2);
+    color: #facc15;
+    border: 1px solid #eab308;
+    font-weight: 700;
+    padding: 0.25rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+/* Callout de Alertas no Cliente */
+.vta-similarity-callout {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.85rem;
+    color: #fca5a5;
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.vta-similarity-callout-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: #ef4444;
+    margin-bottom: 0.4rem;
+}
+
+.vta-similarity-callout ul {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+.vta-similarity-callout li {
+    margin-bottom: 0.25rem;
+}
+
+/* Destaque nos cards de OS com suspeitas */
+.os-card.suspect-high {
+    border: 2px solid #ef4444 !important;
+    background: rgba(239, 68, 68, 0.04) !important;
+}
+
+.os-card.suspect-medium {
+    border: 2px solid #f59e0b !important;
+    background: rgba(245, 158, 11, 0.04) !important;
+}
+
+.os-card.suspect-low {
+    border: 2px solid #eab308 !important;
+    background: rgba(234, 179, 8, 0.04) !important;
+}
+
+.vta-os-alert-ribbon {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(239, 68, 68, 0.15);
+    border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 0.4rem 0.75rem;
+    margin: -0.75rem -0.75rem 0.65rem -0.75rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #fca5a5;
+    border-radius: 6px 6px 0 0;
+}
+
+.vta-os-alert-ribbon.medium {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: #fde68a;
+}
+
+/* Informações do Paciente e Armação na OS */
+.vta-os-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.5rem;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 0.65rem;
+    font-size: 0.8rem;
+}
+
+.vta-meta-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.vta-meta-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.vta-meta-value {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Ajustes no Tema Clássico (Claro) */
+html[data-theme="classico"] .badge-similarity-high {
+    background: #fee2e2;
+    color: #991b1b;
+    border-color: #ef4444;
+}
+
+html[data-theme="classico"] .badge-similarity-medium {
+    background: #fef3c7;
+    color: #92400e;
+    border-color: #f59e0b;
+}
+
+html[data-theme="classico"] .badge-similarity-low {
+    background: #fef9c3;
+    color: #854d0e;
+    border-color: #eab308;
+}
+
+html[data-theme="classico"] .vta-similarity-callout {
+    background: #fff5f5;
+    border-color: #fca5a5;
+    color: #7f1d1d;
+}
+
+html[data-theme="classico"] .vta-similarity-callout-header {
+    color: #b91c1c;
+}
+
+html[data-theme="classico"] .os-card.suspect-high {
+    border-color: #dc2626 !important;
+    background: #fff5f5 !important;
+}
+
+html[data-theme="classico"] .os-card.suspect-medium {
+    border-color: #d97706 !important;
+    background: #fffbeb !important;
+}
+
+html[data-theme="classico"] .vta-os-alert-ribbon {
+    background: #fee2e2;
+    border-bottom-color: #fca5a5;
+    color: #991b1b;
+}
+
+html[data-theme="classico"] .vta-os-alert-ribbon.medium {
+    background: #fef3c7;
+    border-bottom-color: #fde68a;
+    color: #92400e;
+}
+
+html[data-theme="classico"] .vta-os-meta-grid {
+    background: #f1f5f9;
+}
+
+/* ============================================================
+   IMPRESSÃO: RELATÓRIO PROFISSIONAL DE VTA
+   ============================================================ */
+
+body.printing-vta-report {
+    background: #ffffff !important;
+    color: #0f172a !important;
+}
+
+.print-vta-client-block {
+    margin-bottom: 12px;
+    border: 1px solid #94a3b8;
+    border-radius: 4px;
+    background: #ffffff;
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+.print-vta-client-header {
+    background-color: #f1f5f9 !important;
+    border-bottom: 2px solid #2563eb !important;
+    padding: 6px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+
+.print-vta-client-title {
+    font-size: 9.5pt;
+    font-weight: 800;
+    color: #1e3a8a;
+}
+
+.print-vta-client-sub {
+    font-size: 7.5pt;
+    color: #475569;
+}
+
+.print-vta-client-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.print-vta-badge {
+    padding: 2px 5px;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    font-size: 7pt;
+    font-weight: 600;
+    background: #ffffff;
+    color: #0f172a;
+    white-space: nowrap;
+}
+
+.print-vta-client-body {
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+.print-vta-os-block {
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: #ffffff;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-bottom: 6px;
+}
+
+.print-vta-os-block.has-alert {
+    border: 1.5px solid #dc2626 !important;
+}
+
+.print-vta-os-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+.print-vta-os-title {
+    font-size: 8.5pt;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.print-vta-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7.5pt;
+    margin-top: 4px;
+    page-break-inside: auto;
+    break-inside: auto;
+}
+
+.print-vta-table thead {
+    display: table-header-group !important;
+}
+
+.print-vta-table tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+
+.print-vta-table th {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 700;
+    padding: 3px 5px;
+    border-bottom: 1px solid #94a3b8;
+    text-align: left;
+}
+
+.print-vta-table td {
+    padding: 2.5px 5px;
+    border-bottom: 1px solid #e2e8f0;
+    color: #0f172a;
+}
+
+.print-vta-grand-total {
+    margin-top: 10px;
+    padding: 8px 10px;
+    background: #1e293b !important;
+    color: #ffffff !important;
+    font-weight: 700;
+    font-size: 8.5pt;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+
+.print-vta-footer {
+    margin-top: 12px;
+    padding-top: 6px;
+    border-top: 1px solid #cbd5e1;
+    font-size: 7pt;
+    color: #64748b;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+}
+

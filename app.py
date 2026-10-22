@@ -11,6 +11,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import unicodedata
+from difflib import SequenceMatcher
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -897,23 +899,23 @@ def get_campanhas_relatorio(
                 os.NUMEROORDEMSERVICO,
                 os.COD_EMPRESA,
                 s.COD_SAIDAMOTIVO,
-                CAST(sm.DESCRICAO AS VARCHAR(100)) AS CAMPANHA_NOME,
+                CAST(SUBSTRING(sm.DESCRICAO FROM 1 FOR 100) AS VARCHAR(100)) AS CAMPANHA_NOME,
                 t.DATAEMISSAO,
                 s.DATAEXPEDICAO,
                 t.COD_PESSOA,
                 COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || t.COD_PESSOA) AS CLIENTE_NOME_FANTASIA,
-                CAST(p.RAZAOSOCIAL AS VARCHAR(250)) AS CLIENTE_RAZAO_SOCIAL,
-                CAST(p.CNPJ AS VARCHAR(25)) AS CNPJ,
-                CAST(p.CPF AS VARCHAR(25)) AS CPF,
-                CAST(p.CIDADE AS VARCHAR(60)) AS CIDADE,
-                CAST(p.COD_UF AS VARCHAR(5)) AS UF,
+                CAST(SUBSTRING(p.RAZAOSOCIAL FROM 1 FOR 250) AS VARCHAR(250)) AS CLIENTE_RAZAO_SOCIAL,
+                CAST(SUBSTRING(p.CNPJ FROM 1 FOR 25) AS VARCHAR(25)) AS CNPJ,
+                CAST(SUBSTRING(p.CPF FROM 1 FOR 25) AS VARCHAR(25)) AS CPF,
+                CAST(SUBSTRING(p.CIDADE FROM 1 FOR 60) AS VARCHAR(60)) AS CIDADE,
+                CAST(SUBSTRING(p.COD_UF FROM 1 FOR 5) AS VARCHAR(5)) AS UF,
                 p.IDENTIFICADOR,
                 t.TOTAL,
                 t.TOTALPRODUTOS,
                 t.TOTALSERVICOS,
                 COALESCE(s.VALORDESCONTO, 0) AS DESCONTO_OS,
-                CAST(sit.DESCRICAO AS VARCHAR(60)) AS SITUACAO_OS,
-                CAST(t.OBSERVACAO AS VARCHAR(500)) AS OBSERVACAO
+                CAST(SUBSTRING(sit.DESCRICAO FROM 1 FOR 60) AS VARCHAR(60)) AS SITUACAO_OS,
+                CAST(SUBSTRING(t.OBSERVACAO FROM 1 FOR 500) AS VARCHAR(500)) AS OBSERVACAO
             FROM ORDEMSERVICO os
             JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
             JOIN SAIDAMOTIVO sm ON sm.COD_SAIDAMOTIVO = s.COD_SAIDAMOTIVO AND sm.TIPO = 2
@@ -2814,6 +2816,447 @@ def get_cliente_familia_ordens_servico(
         }
     except Exception as e:
         logger.error(f"Erro ao buscar ordens de serviço da família {cod_familia} para o cliente {cod_pessoa}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+STOP_WORDS_PT = {'DE', 'DA', 'DO', 'DOS', 'DAS', 'E'}
+
+def clean_patient_tokens(text):
+    if not text:
+        return []
+    text = unicodedata.normalize('NFKD', str(text)).encode('ASCII', 'ignore').decode('ASCII')
+    text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)
+    tokens = [w for w in text.upper().split() if w not in STOP_WORDS_PT]
+    return tokens
+
+def clean_frame_tokens(text):
+    if not text:
+        return ""
+    text = unicodedata.normalize('NFKD', str(text)).encode('ASCII', 'ignore').decode('ASCII')
+    text = re.sub(r'[^a-zA-Z0-9]', '', text).upper()
+    return text
+
+def calc_patient_similarity(n1, n2):
+    t1 = clean_patient_tokens(n1)
+    t2 = clean_patient_tokens(n2)
+    if not t1 and not t2:
+        return 1.0, "Ambas sem paciente informado"
+    if not t1 or not t2:
+        return 0.0, "Paciente informado em apenas uma das OSs"
+    s1 = ' '.join(t1)
+    s2 = ' '.join(t2)
+    if s1 == s2:
+        return 1.0, "Nomes idênticos"
+    set1, set2 = set(t1), set(t2)
+    if set1 == set2:
+        return 1.0, "Mesmos nomes em ordem diferente"
+    
+    first_same = (t1[0] == t2[0])
+    ratio = SequenceMatcher(None, s1, s2).ratio()
+    if not first_same and SequenceMatcher(None, t1[0], t2[0]).ratio() < 0.70:
+        ratio = ratio * 0.70
+    return round(ratio, 4), f"Similaridade gráfica ({round(ratio*100, 1)}%)"
+
+
+
+@app.get("/api/vta/analise")
+def get_vta_analise(
+    data_inicio: Optional[str] = Query(None, description="Data inicial YYYY-MM-DD"),
+    data_fim: Optional[str] = Query(None, description="Data final YYYY-MM-DD"),
+    cliente: Optional[str] = Query(None, description="Nome Fantasia, Razão Social ou código do cliente"),
+    somente_suspeitas: bool = Query(False, description="Exibir apenas clientes e OSs com similaridade detectada"),
+    limit: Optional[str] = Query("0", description="0 = sem limite seguro")
+):
+    """
+    Busca ordens de serviço marcadas como VTA (por Tipo VT = 1 ou Item 15889),
+    agrupadas por cliente, e analisa similaridades (mesmo dia, mesmo valor e/ou mesmo paciente).
+    """
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        dt_ini = sanitize_date_param(data_inicio)
+        dt_fim = sanitize_date_param(data_fim)
+
+        if dt_ini and dt_fim and dt_ini > dt_fim:
+            dt_ini, dt_fim = dt_fim, dt_ini
+
+        limit_val = 0
+        try:
+            if limit is not None and str(limit).strip().isdigit():
+                limit_val = int(limit)
+        except Exception:
+            limit_val = 0
+        first_clause = f"FIRST {limit_val}" if limit_val > 0 else ""
+
+        sql = f"""
+            SELECT {first_clause}
+                os.COD_ORDEMSERVICO,
+                os.NUMEROORDEMSERVICO,
+                os.COD_EMPRESA,
+                t.DATAEMISSAO,
+                s.DATAEXPEDICAO,
+                t.COD_PESSOA,
+                COALESCE(NULLIF(TRIM(p.NOME), ''), NULLIF(TRIM(p.RAZAOSOCIAL), ''), 'Cliente ' || t.COD_PESSOA) AS CLIENTE_NOME_FANTASIA,
+                CAST(SUBSTRING(p.RAZAOSOCIAL FROM 1 FOR 250) AS VARCHAR(250)) AS CLIENTE_RAZAO_SOCIAL,
+                CAST(SUBSTRING(p.CNPJ FROM 1 FOR 25) AS VARCHAR(25)) AS CNPJ,
+                CAST(SUBSTRING(p.CPF FROM 1 FOR 25) AS VARCHAR(25)) AS CPF,
+                CAST(SUBSTRING(p.CIDADE FROM 1 FOR 60) AS VARCHAR(60)) AS CIDADE,
+                CAST(SUBSTRING(p.COD_UF FROM 1 FOR 5) AS VARCHAR(5)) AS UF,
+                p.IDENTIFICADOR,
+                t.TOTAL,
+                t.TOTALPRODUTOS,
+                t.TOTALSERVICOS,
+                COALESCE(s.VALORDESCONTO, 0) AS DESCONTO_OS,
+                CAST(SUBSTRING(sit.DESCRICAO FROM 1 FOR 60) AS VARCHAR(60)) AS SITUACAO_OS,
+                CAST(SUBSTRING(t.OBSERVACAO FROM 1 FOR 500) AS VARCHAR(500)) AS OBSERVACAO,
+                o.TIPOVT,
+                CAST(SUBSTRING(o.NOMEPACIENTE FROM 1 FOR 120) AS VARCHAR(120)) AS NOMEPACIENTE,
+                CAST(SUBSTRING(o.REFERENCIA FROM 1 FOR 50) AS VARCHAR(50)) AS REFERENCIA,
+                CAST(SUBSTRING(o.DESCRICAOARMACAO FROM 1 FOR 80) AS VARCHAR(80)) AS DESCRICAOARMACAO,
+                CASE WHEN EXISTS (SELECT 1 FROM TRANSACAO_ITEM ti WHERE ti.COD_TRANSACAO = os.COD_ORDEMSERVICO AND ti.COD_EMPRESA = os.COD_EMPRESA AND ti.COD_ITEM = '15889') THEN 1 ELSE 0 END AS TEM_ITEM_VTA
+            FROM ORDEMSERVICO os
+            JOIN TRANSACAO t ON t.COD_TRANSACAO = os.COD_ORDEMSERVICO AND t.COD_EMPRESA = os.COD_EMPRESA
+            LEFT JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
+            LEFT JOIN PESSOA p ON p.COD_PESSOA = t.COD_PESSOA
+            LEFT JOIN ORDEMSERVICOSITUACAO sit ON sit.COD_ORDEMSERVICOSITUACAO = os.COD_ORDEMSERVICOSITUACAO
+            LEFT JOIN OTIORDEMSERVICOOTICA o ON o.COD_ORDEMSERVICOOTICA = os.COD_ORDEMSERVICO AND o.COD_EMPRESA = os.COD_EMPRESA
+            WHERE (COALESCE(o.TIPOVT, 0) = 1 OR EXISTS (SELECT 1 FROM TRANSACAO_ITEM ti WHERE ti.COD_TRANSACAO = os.COD_ORDEMSERVICO AND ti.COD_EMPRESA = os.COD_EMPRESA AND ti.COD_ITEM = '15889'))
+        """
+
+        params = []
+        if dt_ini:
+            sql += " AND t.DATAEMISSAO >= ?"
+            params.append(dt_ini)
+        if dt_fim:
+            sql += " AND t.DATAEMISSAO <= ?"
+            params.append(dt_fim)
+
+        client_clean = str(cliente).strip() if cliente and not hasattr(cliente, 'default') and str(cliente).strip() else None
+        if client_clean:
+            if client_clean.isdigit():
+                sql += " AND (p.COD_PESSOA = ? OR p.IDENTIFICADOR = ? OR UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))"
+                c_param = f"%{client_clean}%"
+                params.extend([int(client_clean), int(client_clean), c_param, c_param])
+            else:
+                sql += " AND (UPPER(p.NOME) LIKE UPPER(?) OR UPPER(p.RAZAOSOCIAL) LIKE UPPER(?))"
+                c_param = f"%{client_clean}%"
+                params.extend([c_param, c_param])
+
+        sql += " ORDER BY p.NOME ASC, t.DATAEMISSAO DESC, os.COD_ORDEMSERVICO DESC"
+
+        cur.execute(sql, tuple(params))
+        header_rows = cur.fetchall()
+
+        if not header_rows:
+            conn.close()
+            return {
+                "filtros": {
+                    "data_inicio": dt_ini,
+                    "data_fim": dt_fim,
+                    "cliente": client_clean,
+                    "somente_suspeitas": somente_suspeitas
+                },
+                "totais": {
+                    "total_clientes": 0,
+                    "total_os": 0,
+                    "total_faturamento": 0.0,
+                    "total_suspeitas": 0,
+                    "total_os_suspeitas": 0,
+                    "total_clientes_suspeitos": 0
+                },
+                "clientes": []
+            }
+
+        os_ids = [r[0] for r in header_rows]
+        items_by_os = {}
+
+        chunk_size = 400
+        for i in range(0, len(os_ids), chunk_size):
+            chunk = os_ids[i:i + chunk_size]
+            ph = ','.join(['?'] * len(chunk))
+            cur.execute(f"""
+                SELECT 
+                    ti.COD_TRANSACAO,
+                    ti.COD_TRANSACAOITEM,
+                    ti.COD_ITEM,
+                    CAST(ti.DESCRICAO AS VARCHAR(250)),
+                    ti.QUANTIDADE,
+                    ti.VALORORIGINAL,
+                    ti.VALORUNITARIO,
+                    ti.TOTAL,
+                    ti.VALORDESCONTO,
+                    osi.PERCENTUALDESCONTO,
+                    i.COD_ITEMTIPO,
+                    CAST(pf.DESCRICAO AS VARCHAR(100)) AS FAMILIA_DESCRICAO
+                FROM TRANSACAO_ITEM ti
+                LEFT JOIN ITEM i ON i.COD_ITEM = ti.COD_ITEM
+                LEFT JOIN ORDEMSERVICO_ITEM osi ON osi.COD_TRANSACAO = ti.COD_TRANSACAO AND osi.COD_TRANSACAOITEM = ti.COD_TRANSACAOITEM AND osi.COD_EMPRESA = ti.COD_EMPRESA
+                LEFT JOIN PRODUTO prod ON prod.COD_PRODUTO = ti.COD_ITEM
+                LEFT JOIN PRODUTOFAMILIA pf ON pf.COD_PRODUTOFAMILIA = COALESCE(ti.COD_PRODUTOFAMILIA, prod.COD_PRODUTOFAMILIA)
+                WHERE ti.COD_TRANSACAO IN ({ph})
+                ORDER BY ti.COD_TRANSACAO, i.COD_ITEMTIPO, ti.COD_TRANSACAOITEM
+            """, tuple(chunk))
+
+            for ir in cur.fetchall():
+                cod_transacao = ir[0]
+                cod_item = str(ir[2]).strip() if ir[2] else ""
+                desc_item = str(ir[3]).strip() if ir[3] else ""
+                qtd = float(ir[4]) if ir[4] is not None else 0.0
+                v_orig = float(ir[5]) if ir[5] is not None else 0.0
+                v_unit = float(ir[6]) if ir[6] is not None else 0.0
+                tot = float(ir[7]) if ir[7] is not None else 0.0
+                v_desc_item = float(ir[8]) if ir[8] is not None else 0.0
+                p_desc_osi = float(ir[9]) if ir[9] is not None else 0.0
+                item_tipo = ir[10] if ir[10] is not None else 1
+                fam_desc = str(ir[11]).strip() if ir[11] else ""
+
+                v_tabela_total = v_orig * qtd if v_orig > 0 else (tot + v_desc_item)
+                if v_orig > v_unit and v_orig > 0:
+                    v_desc_tot = ((v_orig - v_unit) * qtd) + v_desc_item
+                elif v_desc_item > 0:
+                    v_desc_tot = v_desc_item
+                elif p_desc_osi > 0:
+                    v_desc_tot = (tot / (1.0 - (p_desc_osi / 100.0))) - tot if p_desc_osi < 100 else 0.0
+                else:
+                    v_desc_tot = 0.0
+
+                v_desc_unit = (v_desc_tot / qtd) if qtd > 0 else 0.0
+                p_desc = round((v_desc_tot / v_tabela_total) * 100.0, 1) if v_tabela_total > 0 else (round(p_desc_osi, 1) if p_desc_osi > 0 else 0.0)
+
+                items_by_os.setdefault(cod_transacao, []).append({
+                    "cod_item": cod_item,
+                    "descricao": desc_item,
+                    "quantidade": qtd,
+                    "valor_original": round(v_orig, 2),
+                    "desconto_unitario": round(v_desc_unit, 2),
+                    "desconto_total": round(v_desc_tot, 2),
+                    "perc_desconto": p_desc,
+                    "valor_unitario": round(v_unit, 2),
+                    "total": round(tot, 2),
+                    "familia": fam_desc,
+                    "is_servico": (item_tipo == 2)
+                })
+
+        conn.close()
+
+        # Agrupar OSs por cliente
+        clients_dict = {}
+        for r in header_rows:
+            cod_os = r[0]
+            num_os = r[1]
+            cod_empresa = r[2]
+            dt_emissao = r[3]
+            dt_expedicao = r[4]
+            cod_pessoa = r[5] or 0
+            nome_fantasia = r[6].strip() if r[6] else f"Cliente {cod_pessoa}"
+            razao_social = r[7].strip() if r[7] else ""
+            cnpj = r[8].strip() if r[8] else ""
+            cpf = r[9].strip() if r[9] else ""
+            cidade = r[10].strip() if r[10] else ""
+            uf = r[11].strip() if r[11] else ""
+            identificador = r[12] or cod_pessoa
+            total_os = float(r[13]) if r[13] is not None else 0.0
+            tot_produtos = float(r[14]) if r[14] is not None else 0.0
+            tot_servicos = float(r[15]) if r[15] is not None else 0.0
+            desc_os = float(r[16]) if r[16] is not None else 0.0
+            situacao = r[17].strip() if r[17] else ""
+            obs = r[18].strip() if r[18] else ""
+            tipo_vt_val = r[19]
+            paciente_val = str(r[20]).strip() if r[20] else ""
+            referencia_val = str(r[21]).strip() if r[21] else ""
+            armacao_val = str(r[22]).strip() if r[22] else ""
+            tem_item_vta = bool(r[23])
+
+            origem_vta = "Marcação VT"
+            if tipo_vt_val == 1 and tem_item_vta:
+                origem_vta = "VT Marcada e Serviço VTA"
+            elif tem_item_vta:
+                origem_vta = "Serviço V.T.A. (Item 15889)"
+
+            os_items = items_by_os.get(cod_os, [])
+            lentes = [it for it in os_items if not it["is_servico"]]
+            servicos = [it for it in os_items if it["is_servico"]]
+
+            os_obj = {
+                "cod_ordemservico": cod_os,
+                "numeroordemservico": num_os,
+                "cod_empresa": cod_empresa,
+                "data_emissao": dt_emissao.strftime("%d/%m/%Y") if dt_emissao else "",
+                "data_emissao_iso": dt_emissao.strftime("%Y-%m-%d") if dt_emissao else "",
+                "data_expedicao": dt_expedicao.strftime("%d/%m/%Y") if dt_expedicao else "",
+                "total": round(total_os, 2),
+                "total_produtos": round(tot_produtos, 2),
+                "total_servicos": round(tot_servicos, 2),
+                "desconto_os": round(desc_os, 2),
+                "situacao_os": situacao,
+                "observacao": obs,
+                "tipo_vt": tipo_vt_val,
+                "origem_vta": origem_vta,
+                "nome_paciente": paciente_val,
+                "referencia": referencia_val,
+                "descricao_armacao": armacao_val,
+                "grau_suspeita": None,
+                "similaridades": [],
+                "lentes": lentes,
+                "servicos": servicos
+            }
+
+            if cod_pessoa not in clients_dict:
+                clients_dict[cod_pessoa] = {
+                    "cod_pessoa": cod_pessoa,
+                    "nome_fantasia": nome_fantasia,
+                    "razao_social": razao_social,
+                    "cnpj": cnpj,
+                    "cpf": cpf,
+                    "cidade": cidade,
+                    "uf": uf,
+                    "identificador": identificador,
+                    "total_os": 0,
+                    "total_faturamento": 0.0,
+                    "tem_similaridade": False,
+                    "qtd_casos_similaridade": 0,
+                    "ordens_servico": [],
+                    "casos_similaridade": []
+                }
+
+            client_entry = clients_dict[cod_pessoa]
+            client_entry["ordens_servico"].append(os_obj)
+            client_entry["total_os"] += 1
+            client_entry["total_faturamento"] += total_os
+
+        # Análise de similaridade entre pares de OS para cada cliente
+        total_casos_suspeitos_geral = 0
+        conjunto_os_suspeitas = set()
+        clientes_com_suspeitas = 0
+
+        for cod_pessoa, cdata in clients_dict.items():
+            os_list = cdata["ordens_servico"]
+            casos_cliente = []
+
+            for i in range(len(os_list)):
+                for j in range(i + 1, len(os_list)):
+                    os1 = os_list[i]
+                    os2 = os_list[j]
+
+                    same_date = (os1["data_emissao_iso"] == os2["data_emissao_iso"])
+                    same_val = (abs(os1["total"] - os2["total"]) <= 0.05)
+
+                    f1 = clean_frame_tokens(os1.get("descricao_armacao"))
+                    f2 = clean_frame_tokens(os2.get("descricao_armacao"))
+                    same_frame = (f1 == f2)
+
+                    sim_score, sim_label = calc_patient_similarity(os1["nome_paciente"], os2["nome_paciente"])
+
+                    grau = None
+                    motivos = []
+
+                    # Regra de Duplicidade:
+                    # 1) Armação ou a falta dela precisa ser igual
+                    # 2) Similaridade do paciente >= 98%
+                    # 3) Mesmo valor e mesma data de emissão
+                    if same_date and same_val and same_frame and sim_score >= 0.98:
+                        grau = "alta"
+                        armacao_desc = "sem armação" if not f1 else f"armação '{os1['descricao_armacao']}'"
+                        motivos.append(
+                            f"🔴 POSSÍVEL DUPLICIDADE ({round(sim_score*100)}%): Mesmo dia ({os1['data_emissao']}), mesmo valor (R$ {os1['total']:.2f}), {armacao_desc} e paciente semelhante ({sim_label})"
+                        )
+
+
+                    if grau:
+                        caso = {
+                            "id": f"{os1['cod_ordemservico']}_{os2['cod_ordemservico']}",
+                            "grau": grau,
+                            "os1_num": os1["numeroordemservico"],
+                            "os1_cod": os1["cod_ordemservico"],
+                            "os1_paciente": os1["nome_paciente"],
+                            "os1_valor": os1["total"],
+                            "os2_num": os2["numeroordemservico"],
+                            "os2_cod": os2["cod_ordemservico"],
+                            "os2_paciente": os2["nome_paciente"],
+                            "os2_valor": os2["total"],
+                            "data": os1["data_emissao"],
+                            "sim_paciente_score": sim_score,
+                            "motivo": "; ".join(motivos)
+                        }
+                        casos_cliente.append(caso)
+                        total_casos_suspeitos_geral += 1
+                        conjunto_os_suspeitas.add(os1["cod_ordemservico"])
+                        conjunto_os_suspeitas.add(os2["cod_ordemservico"])
+
+                        # Registra na OS 1
+                        os1["similaridades"].append({
+                            "os_relacionada_num": os2["numeroordemservico"],
+                            "os_relacionada_cod": os2["cod_ordemservico"],
+                            "outro_paciente": os2["nome_paciente"],
+                            "outro_valor": os2["total"],
+                            "data": os1["data_emissao"],
+                            "grau": grau,
+                            "motivo": "; ".join(motivos)
+                        })
+                        # Registra na OS 2
+                        os2["similaridades"].append({
+                            "os_relacionada_num": os1["numeroordemservico"],
+                            "os_relacionada_cod": os1["cod_ordemservico"],
+                            "outro_paciente": os1["nome_paciente"],
+                            "outro_valor": os1["total"],
+                            "data": os2["data_emissao"],
+                            "grau": grau,
+                            "motivo": "; ".join(motivos)
+                        })
+
+                        # Atualiza prioridade do grau na OS
+                        for item_os in (os1, os2):
+                            if grau == "alta":
+                                item_os["grau_suspeita"] = "alta"
+                            elif grau == "media" and item_os["grau_suspeita"] != "alta":
+                                item_os["grau_suspeita"] = "media"
+                            elif grau == "baixa" and not item_os["grau_suspeita"]:
+                                item_os["grau_suspeita"] = "baixa"
+
+            cdata["casos_similaridade"] = casos_cliente
+            cdata["qtd_casos_similaridade"] = len(casos_cliente)
+            cdata["tem_similaridade"] = len(casos_cliente) > 0
+            cdata["total_faturamento"] = round(cdata["total_faturamento"], 2)
+            if cdata["tem_similaridade"]:
+                clientes_com_suspeitas += 1
+
+        # Lista de clientes ordenada por nome
+        clientes_finais = list(clients_dict.values())
+        clientes_finais.sort(key=lambda c: (not c["tem_similaridade"], c["nome_fantasia"].upper()))
+
+        # Se solicitado somente casos suspeitos
+        if somente_suspeitas:
+            clientes_filtrados = []
+            for c in clientes_finais:
+                if c["tem_similaridade"]:
+                    # Mantém apenas as OSs que participam de alguma similaridade
+                    c_copia = dict(c)
+                    c_copia["ordens_servico"] = [o for o in c["ordens_servico"] if o["grau_suspeita"] is not None]
+                    clientes_filtrados.append(c_copia)
+            clientes_finais = clientes_filtrados
+
+        total_faturamento_geral = sum(c["total_faturamento"] for c in clients_dict.values())
+        total_os_geral = sum(c["total_os"] for c in clients_dict.values())
+
+        return {
+            "filtros": {
+                "data_inicio": dt_ini,
+                "data_fim": dt_fim,
+                "cliente": client_clean,
+                "somente_suspeitas": somente_suspeitas
+            },
+            "totais": {
+                "total_clientes": len(clients_dict),
+                "total_os": total_os_geral,
+                "total_faturamento": round(total_faturamento_geral, 2),
+                "total_suspeitas": total_casos_suspeitos_geral,
+                "total_os_suspeitas": len(conjunto_os_suspeitas),
+                "total_clientes_suspeitos": clientes_com_suspeitas
+            },
+            "clientes": clientes_finais
+        }
+    except Exception as e:
+        logger.error(f"Erro ao buscar análise de VTA: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/sistema/atualizar")

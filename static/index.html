@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -77,6 +77,10 @@
                 <button id="tabCampanhas" class="module-tab">
                     <span class="tab-icon">🎯</span>
                     <span>Relatório de Campanhas</span>
+                </button>
+                <button id="tabVTA" class="module-tab">
+                    <span class="tab-icon">🔬</span>
+                    <span>Análise de VTA</span>
                 </button>
             </div>
         </div>
@@ -974,6 +978,147 @@
                 </div>
             </section>
         </div>
+
+        <!-- Section Análise de VTA -->
+        <div id="sectionVTA" class="tab-content hidden">
+            <!-- Filter & Action Card -->
+            <section class="card search-card no-print">
+                <div class="card-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <h2>🔬 Análise de VTA e Detecção de Similaridades</h2>
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                            Listagem de todas as Ordens de Serviço marcadas como VTA por período, agrupadas por cliente, com identificação inteligente de OSs semelhantes (mesmo dia, mesmo valor e/ou mesmo paciente).
+                        </p>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button id="btnExportVtaCsv" class="btn btn-secondary" style="padding: 0.6rem 1rem; font-weight: 600;" title="Exportar dados para planilha Excel / CSV">
+                            📥 Exportar CSV / Excel
+                        </button>
+                        <button id="btnPrintVta" class="btn btn-success" style="padding: 0.6rem 1.25rem; font-weight: 600;" title="Imprimir este relatório">
+                            🖨️ Imprimir Relatório
+                        </button>
+                    </div>
+                </div>
+
+                <div class="search-form" style="grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));">
+                    <div class="input-group">
+                        <label for="vtaDateInicio">Data Inicial (Opcional)</label>
+                        <input type="date" id="vtaDateInicio" class="form-control">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="vtaDateFim">Data Final (Opcional)</label>
+                        <input type="date" id="vtaDateFim" class="form-control">
+                    </div>
+
+                    <div class="input-group autocomplete-wrapper" style="position: relative;">
+                        <label for="vtaSearchClientInput">
+                            Buscar por Cliente / Fantasia
+                        </label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">👤</span>
+                            <input type="text" id="vtaSearchClientInput" placeholder="Nome Fantasia, Razão Social ou Cód..." autocomplete="off">
+                            <button type="button" id="btnClearVtaClientSearch" class="btn-clear-input hidden" title="Limpar busca de cliente">✕</button>
+                        </div>
+                        <div id="vtaClientAutocompleteList" class="autocomplete-dropdown hidden"></div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="vtaLimitSelect">Limite de OSs</label>
+                        <select id="vtaLimitSelect" class="form-control">
+                            <option value="1000" selected>1.000 OS (Recomendado)</option>
+                            <option value="500">500 OS</option>
+                            <option value="3000">3.000 OS</option>
+                            <option value="5000">5.000 OS</option>
+                            <option value="0">Sem Limite (Todas as OS)</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem 0.75rem; background: var(--bg-hover, rgba(255,255,255,0.05)); border: 1px solid var(--border-color); border-radius: 6px; font-weight: 600; font-size: 0.85rem; height: 38px;">
+                            <input type="checkbox" id="vtaOnlySuspects" style="width: 1.15rem; height: 1.15rem; cursor: pointer; accent-color: #ef4444;">
+                            <span style="color: #f87171;">⚠️ Apenas Casos Suspeitos</span>
+                        </label>
+                    </div>
+
+                    <div class="button-group" style="align-self: flex-end; display: flex; gap: 0.5rem;">
+                        <button id="btnSearchVta" class="btn btn-primary" style="flex: 2;">
+                            <span>🔍 Filtrar</span>
+                        </button>
+                        <button id="btnClearVta" class="btn btn-secondary" style="flex: 1;" title="Limpar todos os filtros">
+                            <span>Limpar</span>
+                        </button>
+                    </div>
+
+                    <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.25rem; padding-top: 0.5rem; border-top: 1px dashed var(--border-color, #334155);">
+                        <span style="font-size: 0.78rem; color: var(--text-secondary); font-weight: 600;">⚡ Atalhos de Período:</span>
+                        <button type="button" id="btnVtaPeriodoEsteMes" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📅 Este Mês (Outubro/2026)</button>
+                        <button type="button" id="btnVtaPeriodoMesAnterior" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📅 Mês Anterior (Setembro/2026)</button>
+                        <button type="button" id="btnVtaPeriodoUltimos30" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📅 Últimos 30 Dias</button>
+                        <button type="button" id="btnVtaPeriodoAnoAtual" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">📅 Ano de 2026</button>
+                        <button type="button" id="btnVtaPeriodoLimpar" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; color: #ef4444;">✕ Todo o Histórico (Sem Data)</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Stats Bar -->
+            <div class="client-stats-bar no-print" id="vtaStatsBar">
+                <div class="stat-box">
+                    <span class="stat-label">Clientes VTA</span>
+                    <span id="statVtaClientes" class="stat-value text-blue">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Total de OS VTA</span>
+                    <span id="statVtaOS" class="stat-value">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Faturamento Total (R$)</span>
+                    <span id="statVtaTotalGeral" class="stat-value text-green font-bold">R$ 0,00</span>
+                </div>
+                <div class="stat-box" style="border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08);">
+                    <span class="stat-label" style="color: #f87171;">⚠️ Casos de Duplicidade</span>
+                    <span id="statVtaSuspeitas" class="stat-value text-red font-bold">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">OSs Envolvidas em Alerta</span>
+                    <span id="statVtaOsSuspeitas" class="stat-value text-yellow">0</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Clientes com Alertas</span>
+                    <span id="statVtaClientesSuspeitos" class="stat-value text-purple">0</span>
+                </div>
+            </div>
+
+            <!-- Report Results Card -->
+            <section class="card result-card print-full-width">
+                <div class="card-header no-print flex-between" style="border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+                    <div>
+                        <h2>📋 Ordens de Serviço VTA por Cliente</h2>
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">
+                            💡 Agrupadas por cliente. Identifica suspeitas de duplicidade (mesmo dia, mesmo valor, mesma armação e similaridade de paciente ≥ 98%).
+                        </span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                        <span id="vtaResultBadge" class="badge">0 clientes</span>
+                        <span id="vtaSuspectsBadge" class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444;">0 alertas de duplicidade</span>
+                        <button type="button" id="btnExpandAllVta" class="btn btn-secondary btn-sm" title="Expandir todos os clientes">
+                            ➕ Expandir Todos
+                        </button>
+                        <button type="button" id="btnCollapseAllVta" class="btn btn-secondary btn-sm" title="Recolher todos os clientes">
+                            ➖ Recolher Todos
+                        </button>
+                    </div>
+                </div>
+
+                <div id="vtaReportContent" class="vta-report-container">
+                    <div class="empty-state" style="padding: 3rem 1rem; text-align: center; color: var(--text-secondary);">
+                        <div style="font-size: 2.5rem; margin-bottom: 0.75rem;">🔬</div>
+                        <h3>Nenhuma análise realizada</h3>
+                        <p style="margin-top: 0.25rem;">Informe o período ou filtros desejados e clique em <strong>Filtrar</strong> para analisar as OSs de VTA.</p>
+                    </div>
+                </div>
+            </section>
+        </div>
     </main>
 
     <!-- Edit Modal Workspace -->
@@ -1297,9 +1442,14 @@
         <!-- Rendered dynamically upon clicking print campanhas report -->
     </div>
 
+    <!-- Print Template for VTA (Relatório Profissional de OSs VTA e Análise de Similaridades) -->
+    <div id="printVtaReportContainer" class="print-only">
+        <!-- Rendered dynamically upon clicking print VTA report -->
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.8.0"></script>
+    <script src="app.js?v=1.9.0"></script>
 </body>
 </html>
