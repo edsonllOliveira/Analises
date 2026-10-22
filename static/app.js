@@ -5523,40 +5523,40 @@ function renderVtaReport(data) {
                 const ribbonClass = firstSim.grau === 'media' ? 'medium' : '';
                 alertRibbonHtml = `
                     <div class="vta-os-alert-ribbon ${ribbonClass}">
-                        <span>⚠️ Alerta de Duplicidade:</span>
-                        <span>Possível duplicidade com OS #${firstSim.os_relacionada_num} (${firstSim.data}, R$ ${formatMoney(firstSim.outro_valor)}) • ${firstSim.motivo}</span>
+                        <span class="vta-ribbon-title">⚠️ Alerta de Duplicidade:</span>
+                        <span class="vta-ribbon-desc">Possível duplicidade com OS #${firstSim.os_relacionada_num} (${firstSim.data}, R$ ${formatMoney(firstSim.outro_valor)}) • ${firstSim.motivo}</span>
                     </div>
                 `;
             }
 
             const lentesRows = (os.lentes || []).map(l => `
-                <tr>
-                    <td><strong>${l.cod_item}</strong></td>
-                    <td>${l.descricao}</td>
+                <tr class="vta-table-row">
+                    <td><strong class="vta-item-cod">${l.cod_item}</strong></td>
+                    <td class="vta-item-desc">${l.descricao}</td>
                     <td class="text-center">${l.quantidade}</td>
                     <td class="text-right">R$ ${formatMoney(l.valor_unitario)}</td>
                     <td class="text-right">${l.perc_desconto > 0 ? l.perc_desconto.toFixed(1) + '%' : '-'}</td>
-                    <td class="text-right font-bold">R$ ${formatMoney(l.total)}</td>
+                    <td class="text-right vta-item-total">R$ ${formatMoney(l.total)}</td>
                 </tr>
             `).join('');
 
             const servicosRows = (os.servicos || []).map(s => `
-                <tr style="color: var(--text-secondary);">
-                    <td><strong>${s.cod_item}</strong></td>
-                    <td>${s.descricao}</td>
+                <tr class="vta-table-row vta-table-row-servico">
+                    <td><strong class="vta-item-cod">${s.cod_item}</strong></td>
+                    <td class="vta-item-desc">${s.descricao}</td>
                     <td class="text-center">${s.quantidade}</td>
                     <td class="text-right">R$ ${formatMoney(s.valor_unitario)}</td>
                     <td class="text-right">${s.perc_desconto > 0 ? s.perc_desconto.toFixed(1) + '%' : '-'}</td>
-                    <td class="text-right font-bold">R$ ${formatMoney(s.total)}</td>
+                    <td class="text-right vta-item-total">R$ ${formatMoney(s.total)}</td>
                 </tr>
             `).join('');
 
             let itemsTableHtml = '';
             if (lentesRows || servicosRows) {
                 itemsTableHtml = `
-                    <table class="table-subitems" style="width: 100%; font-size: 0.78rem; margin-top: 0.5rem; border-collapse: collapse;">
+                    <table class="table-subitems vta-items-table">
                         <thead>
-                            <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+                            <tr>
                                 <th style="width: 80px;">Cód.</th>
                                 <th>Item / Descrição</th>
                                 <th class="text-center" style="width: 50px;">Qtd</th>
@@ -5574,16 +5574,16 @@ function renderVtaReport(data) {
             }
 
             return `
-                <div class="os-card ${suspectClass}" style="padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg, #1e293b); margin-bottom: 0.65rem;">
+                <div class="os-card vta-os-card ${suspectClass}">
                     ${alertRibbonHtml}
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
-                        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                            <span style="font-weight: 800; font-size: 0.95rem; color: #38bdf8;">OS #${os.numeroordemservico}</span>
-                            <span class="badge" style="font-size: 0.72rem;">📅 ${os.data_emissao}</span>
-                            <span class="badge" style="font-size: 0.72rem; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">${os.origem_vta}</span>
-                            ${os.situacao_os ? `<span class="badge" style="font-size: 0.72rem; color: var(--text-secondary);">${os.situacao_os}</span>` : ''}
+                    <div class="vta-os-header">
+                        <div class="vta-os-header-left">
+                            <span class="vta-os-number">OS #${os.numeroordemservico}</span>
+                            <span class="badge vta-badge-date">📅 ${os.data_emissao}</span>
+                            <span class="badge vta-badge-origem">${os.origem_vta}</span>
+                            ${os.situacao_os ? `<span class="badge vta-badge-situacao">${os.situacao_os}</span>` : ''}
                         </div>
-                        <div style="font-size: 0.95rem; font-weight: 800; color: #4ade80;">
+                        <div class="vta-os-total">
                             R$ ${formatMoney(os.total)}
                         </div>
                     </div>
@@ -5591,7 +5591,7 @@ function renderVtaReport(data) {
                     <div class="vta-os-meta-grid">
                         <div class="vta-meta-item">
                             <span class="vta-meta-label">Paciente</span>
-                            <span class="vta-meta-value" style="color: ${os.nome_paciente ? 'var(--text-primary)' : 'var(--text-secondary)'};">
+                            <span class="vta-meta-value">
                                 ${os.nome_paciente || '<em>(Não informado)</em>'}
                             </span>
                         </div>
