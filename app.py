@@ -3259,6 +3259,606 @@ def get_vta_analise(
         logger.error(f"Erro ao buscar análise de VTA: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/dashboard/vendas-curva")
+def get_dashboard_vendas_curva(
+    ano_base: Optional[int] = Query(None, description="Ano base de referência (padrão ano atual)"),
+    qtd_anos: int = Query(3, ge=1, le=10, description="Quantidade de anos comparativos"),
+    tipo_filtro: str = Query("vendas", description="'vendas', 'amplo' ou 'todos'"),
+    apenas_faturadas: bool = Query(True, description="Se True, filtra t.SITUACAO = 3")
+):
+    """
+    Retorna métricas mensais consolidadas para curva de vendas dos últimos N anos
+    e dados do ano corrente com linha de tendência estatística (regressão linear OLS).
+    """
+    try:
+        hoje = datetime.date.today()
+        ano_atual = hoje.year
+        mes_atual = hoje.month
+        dia_atual = hoje.day
+
+        ano_ref = int(ano_base) if ano_base and not hasattr(ano_base, 'default') and int(ano_base) > 2000 else ano_atual
+        qtd = max(1, min(10, int(qtd_anos))) if qtd_anos and not hasattr(qtd_anos, 'default') else 3
+        
+        anos = [ano_ref - i for i in range(qtd - 1, -1, -1)]
+        min_ano = min(anos)
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        where_clauses = [
+            "t.DATAEMISSAO >= ?",
+            "t.DATAEMISSAO <= ?"
+        ]
+        params = [f"{min_ano}-01-01", f"{ano_ref}-12-31"]
+
+        if apenas_faturadas:
+            where_clauses.append("t.SITUACAO = 3")
+
+        tipo_clean = str(tipo_filtro).strip().lower() if tipo_filtro and not hasattr(tipo_filtro, 'default') else "vendas"
+        if tipo_clean == "vendas":
+            where_clauses.append("(nat.TIPO IN (1, 11) OR nat.TIPO IS NULL)")
+        elif tipo_clean == "amplo":
+            where_clauses.append("(nat.TIPO IN (1, 8, 9, 10, 11, 12) OR nat.TIPO IS NULL)")
+
+        where_str = " AND ".join(where_clauses)
+
+        sql = f"""
+            SELECT 
+                EXTRACT(YEAR FROM t.DATAEMISSAO) AS ANO,
+                EXTRACT(MONTH FROM t.DATAEMISSAO) AS MES,
+                COUNT(os.COD_ORDEMSERVICO) AS QTD_OS,
+                SUM(t.TOTAL) AS TOTAL_VALOR,
+                SUM(COALESCE(s.VALORDESCONTO, 0)) AS TOTAL_DESCONTO,
+                AVG(t.TOTAL) AS TICKET_MEDIO
+            FROM ORDEMSERVICO os
+            JOIN SAIDA s ON s.COD_SAIDA = os.COD_ORDEMSERVICO AND s.COD_EMPRESA = os.COD_EMPRESA
+            JOIN TRANSACAO t ON t.COD_TRANSACAO = s.COD_SAIDA AND t.COD_EMPRESA = os.COD_EMPRESA
+            LEFT JOIN NATUREZAOPERACAO nat ON nat.COD_NATUREZAOPERACAO = t.COD_NATUREZAOPERACAO
+            WHERE {where_str}
+            GROUP BY EXTRACT(YEAR FROM t.DATAEMISSAO), EXTRACT(MONTH FROM t.DATAEMISSAO)
+            ORDER BY ANO, MES
+        """
+
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+
+        lookup = {}
+        for r in rows:
+            ano = int(r[0])
+            mes = int(r[1])
+            qtd_os = int(r[2]) if r[2] is not None else 0
+            val_total = float(r[3]) if r[3] is not None else 0.0
+            val_desc = float(r[4]) if r[4] is not None else 0.0
+            ticket = float(r[5]) if r[5] is not None else (val_total / qtd_os if qtd_os > 0 else 0.0)
+            lookup[(ano, mes)] = {
+                "quantidade": qtd_os,
+                "valor": val_total,
+                "desconto": val_desc,
+                "ticket_medio": ticket
+            }
+
+        meses_nomes = [
+            (1, "Janeiro", "Jan"), (2, "Fevereiro", "Fev"), (3, "Março", "Mar"),
+            (4, "Abril", "Abr"), (5, "Maio", "Mai"), (6, "Junho", "Jun"),
+            (7, "Julho", "Jul"), (8, "Agosto", "Ago"), (9, "Setembro", "Set"),
+            (10, "Outubro", "Out"), (11, "Novembro", "Nov"), (12, "Dezembro", "Dez")
+        ]
+
+        mensal_por_ano = {}
+        totais_por_ano = {}
+
+        for a in anos:
+            lista_meses = []
+            soma_val = 0.0
+            soma_qtd = 0
+            soma_desc = 0.0
+
+            for m_num, m_nome, m_abrev in meses_nomes:
+                rec = lookup.get((a, m_num), {})
+                v = round(rec.get("valor", 0.0), 2)
+                q = rec.get("quantidade", 0)
+                d = round(rec.get("desconto", 0.0), 2)
+                t = round(rec.get("ticket_medio", 0.0), 2) if q > 0 else (round(v / q, 2) if q > 0 else 0.0)
+
+                soma_val += v
+                soma_qtd += q
+                soma_desc += d
+
+                is_corrente = (a == ano_atual and m_num == mes_atual)
+                is_futuro = (a > ano_atual) or (a == ano_atual and m_num > mes_atual)
+
+                lista_meses.append({
+                    "mes": m_num,
+                    "nome": m_nome,
+                    "abrev": m_abrev,
+                    "valor": v,
+                    "quantidade": q,
+                    "desconto": d,
+                    "ticket_medio": t,
+                    "is_corrente": is_corrente,
+                    "is_futuro": is_futuro
+                })
+
+            mensal_por_ano[str(a)] = lista_meses
+            totais_por_ano[str(a)] = {
+                "valor_total": round(soma_val, 2),
+                "quantidade_total": soma_qtd,
+                "desconto_total": round(soma_desc, 2),
+                "ticket_medio": round(soma_val / soma_qtd, 2) if soma_qtd > 0 else 0.0
+            }
+
+        # 1. Regressão Linear Simples (OLS) para Linha de Tendência do Ano Base
+        meses_ano_base = mensal_por_ano.get(str(ano_ref), [])
+        
+        # Determina até qual mês calcular a linha de tendência
+        limite_mes_calc = mes_atual if ano_ref == ano_atual else 12
+        
+        # Pontos (X, Y) para regressão de valor e de quantidade
+        X = []
+        Y_val = []
+        Y_qtd = []
+
+        dias_no_mes_atual = calendar.monthrange(ano_ref, mes_atual)[1] if ano_ref == ano_atual else 30
+        prorata_fator = (dias_no_mes_atual / max(1, dia_atual)) if (ano_ref == ano_atual and dia_atual < dias_no_mes_atual) else 1.0
+
+        for m_data in meses_ano_base:
+            m_idx = m_data["mes"]
+            if m_idx <= limite_mes_calc:
+                val = m_data["valor"]
+                qtd_m = m_data["quantidade"]
+                # Se for o mês corrente em andamento, anualiza pró-rata para não puxar a reta para baixo
+                if m_data["is_corrente"] and prorata_fator > 1.0:
+                    val = val * prorata_fator
+                    qtd_m = int(round(qtd_m * prorata_fator))
+                
+                if val > 0 or qtd_m > 0:
+                    X.append(m_idx)
+                    Y_val.append(val)
+                    Y_qtd.append(qtd_m)
+
+        def calc_ols(x_list, y_list):
+            k = len(x_list)
+            if k < 2:
+                mean_y = (y_list[0] if y_list else 0.0)
+                return 0.0, mean_y
+            sx = sum(x_list)
+            sy = sum(y_list)
+            sxy = sum(x * y for x, y in zip(x_list, y_list))
+            sxx = sum(x * x for x in x_list)
+            denom = (k * sxx - sx * sx)
+            if denom == 0:
+                return 0.0, (sy / k)
+            slope = (k * sxy - sx * sy) / denom
+            intercept = (sy - slope * sx) / k
+            return slope, intercept
+
+        slope_val, intercept_val = calc_ols(X, Y_val)
+        slope_qtd, intercept_qtd = calc_ols(X, Y_qtd)
+
+        tendencia_12_meses_valor = [round(max(0.0, slope_val * m + intercept_val), 2) for m in range(1, 13)]
+        tendencia_12_meses_qtd = [int(round(max(0.0, slope_qtd * m + intercept_qtd))) for m in range(1, 13)]
+
+        # Taxa de inclinação mensal percentual
+        media_val = (sum(Y_val) / len(Y_val)) if Y_val else 1.0
+        taxa_crescimento_mensal_val = round((slope_val / media_val) * 100, 2) if media_val > 0 else 0.0
+
+        # 2. Cálculos de KPIs
+        tot_ref = totais_por_ano.get(str(ano_ref), {})
+        fat_ano_ref = tot_ref.get("valor_total", 0.0)
+        qtd_ano_ref = tot_ref.get("quantidade_total", 0)
+        ticket_ano_ref = tot_ref.get("ticket_medio", 0.0)
+
+        # Ano anterior
+        ano_anterior = ano_ref - 1
+        tot_ant = totais_por_ano.get(str(ano_anterior), {})
+        fat_ano_ant_fechado = tot_ant.get("valor_total", 0.0)
+        qtd_ano_ant_fechado = tot_ant.get("quantidade_total", 0)
+
+        # Mesmo período do ano anterior (até mês atual)
+        meses_ant = mensal_por_ano.get(str(ano_anterior), [])
+        fat_ano_ant_periodo = sum(m["valor"] for m in meses_ant if m["mes"] <= limite_mes_calc)
+        qtd_ano_ant_periodo = sum(m["quantidade"] for m in meses_ant if m["mes"] <= limite_mes_calc)
+
+        yoy_val_pct = round(((fat_ano_ref / fat_ano_ant_periodo) - 1.0) * 100, 1) if fat_ano_ant_periodo > 0 else 0.0
+        yoy_qtd_pct = round(((qtd_ano_ref / qtd_ano_ant_periodo) - 1.0) * 100, 1) if qtd_ano_ant_periodo > 0 else 0.0
+
+        # Melhor mês do ano base
+        melhor_mes = max(meses_ano_base, key=lambda x: x["valor"]) if meses_ano_base else {}
+
+        # Mês atual (em andamento)
+        mes_atual_obj = next((m for m in meses_ano_base if m["is_corrente"]), None)
+        mes_atual_info = None
+        if mes_atual_obj:
+            val_real = mes_atual_obj["valor"]
+            qtd_real = mes_atual_obj["quantidade"]
+            val_proj = round(val_real * prorata_fator, 2)
+            qtd_proj = int(round(qtd_real * prorata_fator))
+            mes_atual_info = {
+                "mes": mes_atual_obj["mes"],
+                "nome": mes_atual_obj["nome"],
+                "abrev": mes_atual_obj["abrev"],
+                "dias_corridos": dia_atual,
+                "dias_totais": dias_no_mes_atual,
+                "prorata_fator": round(prorata_fator, 2),
+                "valor_realizado": val_real,
+                "valor_projetado": val_proj,
+                "quantidade_realizada": qtd_real,
+                "quantidade_projetada": qtd_proj
+            }
+
+        # Projeção de fechamento do ano
+        if ano_ref == ano_atual:
+            soma_fechados = sum(m["valor"] for m in meses_ano_base if m["mes"] < mes_atual)
+            soma_mes_atual_proj = mes_atual_info["valor_projetado"] if mes_atual_info else 0.0
+            soma_futuros_trend = sum(tendencia_12_meses_valor[m_idx - 1] for m_idx in range(mes_atual + 1, 13))
+            projecao_fechamento_ano = round(soma_fechados + soma_mes_atual_proj + soma_futuros_trend, 2)
+        else:
+            projecao_fechamento_ano = fat_ano_ref
+
+        return {
+            "anos": anos,
+            "ano_base": ano_ref,
+            "ano_atual": ano_atual,
+            "mes_atual": mes_atual,
+            "dia_atual": dia_atual,
+            "tipo_filtro": tipo_clean,
+            "apenas_faturadas": apenas_faturadas,
+            "mensal_por_ano": mensal_por_ano,
+            "totais_por_ano": totais_por_ano,
+            "tendencia_ano_base": {
+                "slope_valor": round(slope_val, 2),
+                "intercept_valor": round(intercept_val, 2),
+                "taxa_crescimento_mensal": taxa_crescimento_mensal_val,
+                "valores_12_meses": tendencia_12_meses_valor,
+                "quantidades_12_meses": tendencia_12_meses_qtd
+            },
+            "kpis": {
+                "faturamento_ano_base": fat_ano_ref,
+                "quantidade_ano_base": qtd_ano_ref,
+                "ticket_medio_ano_base": ticket_ano_ref,
+                "faturamento_ano_anterior_periodo": fat_ano_ant_periodo,
+                "quantidade_ano_anterior_periodo": qtd_ano_ant_periodo,
+                "faturamento_ano_anterior_fechado": fat_ano_ant_fechado,
+                "quantidade_ano_anterior_fechado": qtd_ano_ant_fechado,
+                "yoy_faturamento_pct": yoy_val_pct,
+                "yoy_quantidade_pct": yoy_qtd_pct,
+                "melhor_mes": melhor_mes,
+                "mes_atual_info": mes_atual_info,
+                "projecao_fechamento_ano": projecao_fechamento_ano
+            }
+        }
+    except Exception as e:
+        logger.error(f"Erro ao gerar dados do dashboard de curva de vendas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/dashboard/financeiro-curva")
+def get_dashboard_financeiro_curva(
+    ano_base: Optional[int] = Query(None, description="Ano base de referência (padrão ano atual)"),
+    qtd_anos: int = Query(3, ge=1, le=10, description="Quantidade de anos comparativos"),
+    regime: str = Query("vencimento", description="'vencimento' ou 'liquidacao'"),
+    situacao: str = Query("todos", description="'todos', 'liquidados' ou 'abertos'")
+):
+    """
+    Retorna métricas mensais comparativas de Contas a Pagar e Contas a Receber,
+    cálculo do Ponto de Equilíbrio mensal, saldo líquido operacional (Receber - Pagar),
+    índice de cobertura e linhas de tendência estatística (OLS).
+    """
+    try:
+        hoje = datetime.date.today()
+        ano_atual = hoje.year
+        mes_atual = hoje.month
+        dia_atual = hoje.day
+
+        ano_ref = int(ano_base) if ano_base and not hasattr(ano_base, 'default') and int(ano_base) > 2000 else ano_atual
+        qtd = max(1, min(10, int(qtd_anos))) if qtd_anos and not hasattr(qtd_anos, 'default') else 3
+        
+        anos = [ano_ref - i for i in range(qtd - 1, -1, -1)]
+        min_ano = min(anos)
+
+        regime_clean = str(regime).strip().lower() if regime and not hasattr(regime, 'default') else "vencimento"
+        situacao_clean = str(situacao).strip().lower() if situacao and not hasattr(situacao, 'default') else "todos"
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # Definição do campo de data conforme o regime selecionado
+        if regime_clean == "liquidacao":
+            date_expr = "(CASE WHEN l.PAGAR = 'T' THEN COALESCE(p.DATAPAGAMENTO, p.DATAVENCIMENTO) ELSE COALESCE(p.DATARECEBIMENTO, p.DATAVENCIMENTO) END)"
+        else:
+            date_expr = "p.DATAVENCIMENTO"
+
+        where_clauses = [
+            f"{date_expr} >= ?",
+            f"{date_expr} <= ?"
+        ]
+        params = [f"{min_ano}-01-01", f"{ano_ref}-12-31"]
+
+        if situacao_clean == "liquidados":
+            where_clauses.append("p.SITUACAO = 3")
+        elif situacao_clean == "abertos":
+            where_clauses.append("p.SITUACAO = 1")
+
+        where_str = " AND ".join(where_clauses)
+
+        sql = f"""
+            SELECT 
+                EXTRACT(YEAR FROM {date_expr}) AS ANO,
+                EXTRACT(MONTH FROM {date_expr}) AS MES,
+                l.PAGAR,
+                COUNT(p.COD_LANCAMENTOPARCELA) AS QTD,
+                SUM(p.VALOR) AS TOTAL_VALOR,
+                SUM(COALESCE(p.VALORPAGO, 0) + COALESCE(p.VALORRECEBIDO, 0)) AS TOTAL_LIQUIDADO,
+                SUM(CASE WHEN p.SITUACAO = 1 THEN p.VALOR ELSE 0 END) AS TOTAL_ABERTO
+            FROM FINLANCAMENTO l
+            JOIN FINLANCAMENTOPARCELA p ON p.COD_LANCAMENTO = l.COD_LANCAMENTO
+            WHERE {where_str}
+            GROUP BY EXTRACT(YEAR FROM {date_expr}), EXTRACT(MONTH FROM {date_expr}), l.PAGAR
+            ORDER BY ANO, MES, l.PAGAR
+        """
+
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        conn.close()
+
+        lookup = {}
+        for r in rows:
+            ano = int(r[0])
+            mes = int(r[1])
+            is_pagar = (r[2] == 'T')
+            tipo_chave = 'pagar' if is_pagar else 'receber'
+            qtd_t = int(r[3]) if r[3] is not None else 0
+            val_total = float(r[4]) if r[4] is not None else 0.0
+            val_liq = float(r[5]) if r[5] is not None else 0.0
+            val_aberto = float(r[6]) if r[6] is not None else 0.0
+            ticket = (val_total / qtd_t) if qtd_t > 0 else 0.0
+
+            lookup[(ano, mes, tipo_chave)] = {
+                "quantidade": qtd_t,
+                "valor": val_total,
+                "liquidado": val_liq,
+                "aberto": val_aberto,
+                "ticket_medio": round(ticket, 2)
+            }
+
+        meses_nomes = [
+            (1, "Janeiro", "Jan"), (2, "Fevereiro", "Fev"), (3, "Março", "Mar"),
+            (4, "Abril", "Abr"), (5, "Maio", "Mai"), (6, "Junho", "Jun"),
+            (7, "Julho", "Jul"), (8, "Agosto", "Ago"), (9, "Setembro", "Set"),
+            (10, "Outubro", "Out"), (11, "Novembro", "Nov"), (12, "Dezembro", "Dez")
+        ]
+
+        mensal_por_ano = {}
+        totais_por_ano = {}
+
+        for a in anos:
+            lista_meses = []
+            soma_rec = 0.0
+            soma_pag = 0.0
+            soma_rec_qtd = 0
+            soma_pag_qtd = 0
+            soma_rec_aberto = 0.0
+            soma_pag_aberto = 0.0
+
+            for m_num, m_nome, m_abrev in meses_nomes:
+                rec_info = lookup.get((a, m_num, 'receber'), {})
+                pag_info = lookup.get((a, m_num, 'pagar'), {})
+
+                rec_val = round(rec_info.get("valor", 0.0), 2)
+                pag_val = round(pag_info.get("valor", 0.0), 2)
+
+                rec_q = rec_info.get("quantidade", 0)
+                pag_q = pag_info.get("quantidade", 0)
+
+                rec_ab = round(rec_info.get("aberto", 0.0), 2)
+                pag_ab = round(pag_info.get("aberto", 0.0), 2)
+
+                rec_liq = round(rec_info.get("liquidado", 0.0), 2)
+                pag_liq = round(pag_info.get("liquidado", 0.0), 2)
+
+                soma_rec += rec_val
+                soma_pag += pag_val
+                soma_rec_qtd += rec_q
+                soma_pag_qtd += pag_q
+                soma_rec_aberto += rec_ab
+                soma_pag_aberto += pag_ab
+
+                saldo_liq = round(rec_val - pag_val, 2)
+                ponto_equilibrio = pag_val
+                indice_cob = round((rec_val / pag_val) * 100, 1) if pag_val > 0 else (100.0 if rec_val > 0 else 0.0)
+                status_mes = "Superávit" if saldo_liq >= 0 else "Déficit"
+
+                is_corrente = (a == ano_atual and m_num == mes_atual)
+                is_futuro = (a > ano_atual) or (a == ano_atual and m_num > mes_atual)
+
+                lista_meses.append({
+                    "mes": m_num,
+                    "nome": m_nome,
+                    "abrev": m_abrev,
+                    "receber": {
+                        "valor": rec_val,
+                        "quantidade": rec_q,
+                        "liquidado": rec_liq,
+                        "aberto": rec_ab,
+                        "ticket_medio": round(rec_val / rec_q, 2) if rec_q > 0 else 0.0
+                    },
+                    "pagar": {
+                        "valor": pag_val,
+                        "quantidade": pag_q,
+                        "liquidado": pag_liq,
+                        "aberto": pag_ab,
+                        "ticket_medio": round(pag_val / pag_q, 2) if pag_q > 0 else 0.0
+                    },
+                    "saldo_liquido": saldo_liq,
+                    "ponto_equilibrio": ponto_equilibrio,
+                    "indice_cobertura": indice_cob,
+                    "status": status_mes,
+                    "is_corrente": is_corrente,
+                    "is_futuro": is_futuro
+                })
+
+            mensal_por_ano[str(a)] = lista_meses
+            tot_saldo = round(soma_rec - soma_pag, 2)
+            tot_cob = round((soma_rec / soma_pag) * 100, 1) if soma_pag > 0 else (100.0 if soma_rec > 0 else 0.0)
+
+            totais_por_ano[str(a)] = {
+                "receber_total": round(soma_rec, 2),
+                "pagar_total": round(soma_pag, 2),
+                "saldo_liquido_total": tot_saldo,
+                "indice_cobertura_total": tot_cob,
+                "status_total": "Superávit" if tot_saldo >= 0 else "Déficit",
+                "receber_quantidade_total": soma_rec_qtd,
+                "pagar_quantidade_total": soma_pag_qtd,
+                "receber_aberto_total": round(soma_rec_aberto, 2),
+                "pagar_aberto_total": round(soma_pag_aberto, 2),
+                "ticket_medio_receber": round(soma_rec / soma_rec_qtd, 2) if soma_rec_qtd > 0 else 0.0,
+                "ticket_medio_pagar": round(soma_pag / soma_pag_qtd, 2) if soma_pag_qtd > 0 else 0.0
+            }
+
+        # 1. Regressão Linear Simples (OLS) para Tendências no Ano Base
+        meses_ano_base = mensal_por_ano.get(str(ano_ref), [])
+        limite_mes_calc = mes_atual if ano_ref == ano_atual else 12
+
+        dias_no_mes_atual = calendar.monthrange(ano_ref, mes_atual)[1] if ano_ref == ano_atual else 30
+        prorata_fator = (dias_no_mes_atual / max(1, dia_atual)) if (ano_ref == ano_atual and dia_atual < dias_no_mes_atual) else 1.0
+
+        def calc_ols(x_list, y_list):
+            k = len(x_list)
+            if k < 2:
+                mean_y = (y_list[0] if y_list else 0.0)
+                return 0.0, mean_y
+            sx = sum(x_list)
+            sy = sum(y_list)
+            sxy = sum(x * y for x, y in zip(x_list, y_list))
+            sxx = sum(x * x for x in x_list)
+            denom = (k * sxx - sx * sx)
+            if denom == 0:
+                return 0.0, (sy / k)
+            slope = (k * sxy - sx * sy) / denom
+            intercept = (sy - slope * sx) / k
+            return slope, intercept
+
+        X_m = []
+        Y_rec = []
+        Y_pag = []
+        Y_saldo = []
+
+        for m_data in meses_ano_base:
+            m_idx = m_data["mes"]
+            if m_idx <= limite_mes_calc:
+                vr = m_data["receber"]["valor"]
+                vp = m_data["pagar"]["valor"]
+                if m_data["is_corrente"] and prorata_fator > 1.0:
+                    vr = vr * prorata_fator
+                    vp = vp * prorata_fator
+                X_m.append(m_idx)
+                Y_rec.append(vr)
+                Y_pag.append(vp)
+                Y_saldo.append(vr - vp)
+
+        slope_rec, int_rec = calc_ols(X_m, Y_rec)
+        slope_pag, int_pag = calc_ols(X_m, Y_pag)
+        slope_saldo, int_saldo = calc_ols(X_m, Y_saldo)
+
+        trend_rec_12 = [round(max(0.0, slope_rec * m + int_rec), 2) for m in range(1, 13)]
+        trend_pag_12 = [round(max(0.0, slope_pag * m + int_pag), 2) for m in range(1, 13)]
+        trend_saldo_12 = [round(slope_saldo * m + int_saldo, 2) for m in range(1, 13)]
+
+        # 2. KPIs Financeiros Consolidados
+        tot_ref = totais_por_ano.get(str(ano_ref), {})
+        rec_ano_ref = tot_ref.get("receber_total", 0.0)
+        pag_ano_ref = tot_ref.get("pagar_total", 0.0)
+        saldo_ano_ref = tot_ref.get("saldo_liquido_total", 0.0)
+        cobertura_ano_ref = tot_ref.get("indice_cobertura_total", 0.0)
+
+        # Ano anterior para comparação YoY
+        ano_anterior = ano_ref - 1
+        meses_ant = mensal_por_ano.get(str(ano_anterior), [])
+        rec_ano_ant_periodo = sum(m["receber"]["valor"] for m in meses_ant if m["mes"] <= limite_mes_calc)
+        pag_ano_ant_periodo = sum(m["pagar"]["valor"] for m in meses_ant if m["mes"] <= limite_mes_calc)
+
+        yoy_rec_pct = round(((rec_ano_ref / rec_ano_ant_periodo) - 1.0) * 100, 1) if rec_ano_ant_periodo > 0 else 0.0
+        yoy_pag_pct = round(((pag_ano_ref / pag_ano_ant_periodo) - 1.0) * 100, 1) if pag_ano_ant_periodo > 0 else 0.0
+
+        # Melhor mês de superávit e pior mês de déficit
+        meses_passados = [m for m in meses_ano_base if m["mes"] <= limite_mes_calc]
+        melhor_mes_superavit = max(meses_passados, key=lambda x: x["saldo_liquido"]) if meses_passados else {}
+        pior_mes_deficit = min(meses_passados, key=lambda x: x["saldo_liquido"]) if meses_passados else {}
+
+        # Mês atual (em andamento)
+        mes_atual_obj = next((m for m in meses_ano_base if m["is_corrente"]), None)
+        mes_atual_info = None
+        if mes_atual_obj:
+            rec_real = mes_atual_obj["receber"]["valor"]
+            pag_real = mes_atual_obj["pagar"]["valor"]
+            saldo_real = mes_atual_obj["saldo_liquido"]
+
+            rec_proj = round(rec_real * prorata_fator, 2)
+            pag_proj = round(pag_real * prorata_fator, 2)
+            saldo_proj = round(rec_proj - pag_proj, 2)
+
+            mes_atual_info = {
+                "mes": mes_atual_obj["mes"],
+                "nome": mes_atual_obj["nome"],
+                "abrev": mes_atual_obj["abrev"],
+                "dias_corridos": dia_atual,
+                "dias_totais": dias_no_mes_atual,
+                "prorata_fator": round(prorata_fator, 2),
+                "receber_realizado": rec_real,
+                "receber_projetado": rec_proj,
+                "pagar_realizado": pag_real,
+                "pagar_projetado": pag_proj,
+                "saldo_realizado": saldo_real,
+                "saldo_projetado": saldo_proj,
+                "indice_cobertura": mes_atual_obj["indice_cobertura"]
+            }
+
+        # Projeção de Fechamento do Ano para Saldo Líquido
+        if ano_ref == ano_atual:
+            soma_saldo_fechados = sum(m["saldo_liquido"] for m in meses_ano_base if m["mes"] < mes_atual)
+            saldo_mes_atual_proj = mes_atual_info["saldo_projetado"] if mes_atual_info else 0.0
+            saldo_futuros_trend = sum(trend_saldo_12[m_idx - 1] for m_idx in range(mes_atual + 1, 13))
+            projecao_fechamento_saldo = round(soma_saldo_fechados + saldo_mes_atual_proj + saldo_futuros_trend, 2)
+        else:
+            projecao_fechamento_saldo = saldo_ano_ref
+
+        return {
+            "anos": anos,
+            "ano_base": ano_ref,
+            "ano_atual": ano_atual,
+            "mes_atual": mes_atual,
+            "dia_atual": dia_atual,
+            "regime": regime_clean,
+            "situacao": situacao_clean,
+            "mensal_por_ano": mensal_por_ano,
+            "totais_por_ano": totais_por_ano,
+            "tendencia_ano_base": {
+                "receber_12_meses": trend_rec_12,
+                "pagar_12_meses": trend_pag_12,
+                "saldo_12_meses": trend_saldo_12,
+                "slope_saldo": round(slope_saldo, 2)
+            },
+            "kpis": {
+                "receber_ano_base": rec_ano_ref,
+                "pagar_ano_base": pag_ano_ref,
+                "saldo_liquido_ano_base": saldo_ano_ref,
+                "indice_cobertura_ano_base": cobertura_ano_ref,
+                "receber_ano_ant_periodo": rec_ano_ant_periodo,
+                "pagar_ano_ant_periodo": pag_ano_ant_periodo,
+                "yoy_receber_pct": yoy_rec_pct,
+                "yoy_pagar_pct": yoy_pag_pct,
+                "receber_aberto_ano_base": tot_ref.get("receber_aberto_total", 0.0),
+                "pagar_aberto_ano_base": tot_ref.get("pagar_aberto_total", 0.0),
+                "melhor_mes_superavit": melhor_mes_superavit,
+                "pior_mes_deficit": pior_mes_deficit,
+                "mes_atual_info": mes_atual_info,
+                "projecao_fechamento_saldo": projecao_fechamento_saldo
+            }
+        }
+    except Exception as e:
+        logger.error(f"Erro ao gerar dados do dashboard financeiro: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/sistema/atualizar")
 def atualizar_sistema_git():
     """

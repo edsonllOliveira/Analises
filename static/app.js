@@ -1065,6 +1065,7 @@ const tabTopClientes = document.getElementById('tabTopClientes');
 const tabClientesFamilia = document.getElementById('tabClientesFamilia');
 const tabCampanhas = document.getElementById('tabCampanhas');
 const tabVTA = document.getElementById('tabVTA');
+const tabDashboard = document.getElementById('tabDashboard');
 const sectionOS = document.getElementById('sectionOS');
 const sectionClientes = document.getElementById('sectionClientes');
 const sectionProdutos = document.getElementById('sectionProdutos');
@@ -1072,12 +1073,13 @@ const sectionTopClientes = document.getElementById('sectionTopClientes');
 const sectionClientesFamilia = document.getElementById('sectionClientesFamilia');
 const sectionCampanhas = document.getElementById('sectionCampanhas');
 const sectionVTA = document.getElementById('sectionVTA');
+const sectionDashboard = document.getElementById('sectionDashboard');
 
 function switchActiveTab(activeBtn, activeSection) {
-    [tabOS, tabClientes, tabProdutos, tabTopClientes, tabClientesFamilia, tabCampanhas, tabVTA].forEach(tab => {
+    [tabOS, tabClientes, tabProdutos, tabTopClientes, tabClientesFamilia, tabCampanhas, tabVTA, tabDashboard].forEach(tab => {
         if (tab) tab.classList.remove('active');
     });
-    [sectionOS, sectionClientes, sectionProdutos, sectionTopClientes, sectionClientesFamilia, sectionCampanhas, sectionVTA].forEach(sec => {
+    [sectionOS, sectionClientes, sectionProdutos, sectionTopClientes, sectionClientesFamilia, sectionCampanhas, sectionVTA, sectionDashboard].forEach(sec => {
         if (sec) sec.classList.add('hidden');
     });
 
@@ -1139,6 +1141,15 @@ if (tabCampanhas) {
 if (tabVTA) {
     tabVTA.addEventListener('click', () => {
         switchActiveTab(tabVTA, sectionVTA);
+    });
+}
+
+if (tabDashboard) {
+    tabDashboard.addEventListener('click', () => {
+        switchActiveTab(tabDashboard, sectionDashboard);
+        if (!dashboardVendasDataCache) {
+            loadDashboardVendasData();
+        }
     });
 }
 
@@ -6168,6 +6179,1441 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btn) {
         btn.addEventListener('click', () => {
             applyTheme(root.getAttribute('data-theme') === 'classico' ? 'escuro' : 'classico');
+            // Recria os gráficos do dashboard se já carregados para atualizar paleta de grade/textos
+            if (dashboardVendasDataCache && sectionDashboard && !sectionDashboard.classList.contains('hidden')) {
+                renderChartCurvaTrienal(dashboardVendasDataCache, dashboardCurrentMetric);
+                renderChartAnoCorrenteTendencia(dashboardVendasDataCache, dashboardCurrentMetric);
+            }
+            if (dashboardFinanceiroDataCache && sectionDashboard && !sectionDashboard.classList.contains('hidden')) {
+                renderChartFinanceiroEquilibrio(dashboardFinanceiroDataCache, dashboardFinCurrentMetric);
+                renderChartFinanceiroTrienal(dashboardFinanceiroDataCache, dashboardFinCurrentMetric, dashboardFinTrienalSubView);
+            }
         });
     }
 })();
+
+// ==========================================================================
+// 📈 DASHBOARD DE VENDAS - CURVA TRIENAL & TENDÊNCIA
+// ==========================================================================
+let dashboardVendasDataCache = null;
+let dashboardCurrentMetric = 'valor'; // 'valor' | 'quantidade' | 'ticket_medio'
+let chartCurvaTrienalInstance = null;
+let chartAnoCorrenteTendenciaInstance = null;
+
+const DASHBOARD_YEAR_PALETTE = [
+    { border: '#6366f1', bg: 'rgba(99, 102, 241, 0.1)', point: '#818cf8', name: 'Índigo' },   // Ano N-2 (ex: 2024)
+    { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', point: '#fbbf24', name: 'Âmbar' },    // Ano N-1 (ex: 2025)
+    { border: '#10b981', bg: 'rgba(16, 185, 129, 0.15)', point: '#34d399', name: 'Esmeralda' }, // Ano Base (ex: 2026)
+    { border: '#0ea5e9', bg: 'rgba(14, 165, 233, 0.1)', point: '#38bdf8', name: 'Céu' },
+    { border: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)', point: '#f472b6', name: 'Rosa' }
+];
+
+function getChartThemeOptions() {
+    const isClassic = document.documentElement.getAttribute('data-theme') === 'classico';
+    return {
+        textColor: isClassic ? '#334155' : '#94a3b8',
+        gridColor: isClassic ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.07)',
+        tooltipBg: isClassic ? 'rgba(255, 255, 255, 0.96)' : 'rgba(15, 23, 42, 0.95)',
+        tooltipTitleColor: isClassic ? '#0f172a' : '#ffffff',
+        tooltipBodyColor: isClassic ? '#334155' : '#cbd5e1',
+        tooltipBorder: isClassic ? '#cbd5e1' : '#334155'
+    };
+}
+
+function formatDashboardValue(val, metric) {
+    if (metric === 'quantidade') {
+        return (new Intl.NumberFormat('pt-BR').format(Math.round(val || 0))) + ' OS';
+    }
+    return 'R$ ' + formatMoney(val || 0);
+}
+
+async function loadDashboardVendasData() {
+    const selAnoBase = document.getElementById('selectDashboardAnoBase');
+    const selQtdAnos = document.getElementById('selectDashboardQtdAnos');
+    const selTipo = document.getElementById('selectDashboardTipo');
+    const chkFaturadas = document.getElementById('chkDashboardApenasFaturadas');
+    const btnRefresh = document.getElementById('btnDashboardRefresh');
+
+    const anoBase = selAnoBase ? selAnoBase.value : 2026;
+    const qtdAnos = selQtdAnos ? selQtdAnos.value : 3;
+    const tipo = selTipo ? selTipo.value : 'vendas';
+    const apenasFaturadas = chkFaturadas ? chkFaturadas.checked : true;
+
+    if (btnRefresh) {
+        btnRefresh.disabled = true;
+        btnRefresh.innerHTML = '<span>⏳</span> Atualizando...';
+    }
+
+    try {
+        const url = `/api/dashboard/vendas-curva?ano_base=${encodeURIComponent(anoBase)}&qtd_anos=${encodeURIComponent(qtdAnos)}&tipo_filtro=${encodeURIComponent(tipo)}&apenas_faturadas=${apenasFaturadas}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Falha ao buscar dados do dashboard.');
+        }
+        const data = await res.json();
+        dashboardVendasDataCache = data;
+
+        // Atualiza títulos com os anos dinâmicos
+        const titleCurva = document.getElementById('titleChartCurvaTrienal');
+        if (titleCurva) {
+            titleCurva.textContent = `📊 Curva de Vendas Comparativa (${data.anos.join(' vs ')})`;
+        }
+        const titleAnoCorrente = document.getElementById('titleChartAnoCorrente');
+        if (titleAnoCorrente) {
+            titleAnoCorrente.textContent = `📈 Ano Corrente (${data.ano_base}) & Linha de Tendência`;
+        }
+
+        // Renderiza KPIs, Gráficos e Tabela
+        renderDashboardKPIs(data);
+        renderChartCurvaTrienal(data, dashboardCurrentMetric);
+        renderChartAnoCorrenteTendencia(data, dashboardCurrentMetric);
+        renderDashboardTabelaMensal(data, dashboardCurrentMetric);
+
+    } catch (e) {
+        console.error('Erro ao carregar dashboard de vendas:', e);
+        showToast(`Erro ao carregar dashboard: ${e.message}`, 'error');
+    } finally {
+        if (btnRefresh) {
+            btnRefresh.disabled = false;
+            btnRefresh.innerHTML = '<span>🔄</span> Atualizar';
+        }
+    }
+}
+
+// Renderiza Cards de KPIs
+function renderDashboardKPIs(data) {
+    if (!data || !data.kpis) return;
+    const kpis = data.kpis;
+    const anoBase = data.ano_base;
+    const anoAnt = anoBase - 1;
+
+    // 1. Faturamento Total
+    const elFat = document.getElementById('kpiFaturamentoTotal');
+    if (elFat) elFat.textContent = 'R$ ' + formatMoney(kpis.faturamento_ano_base);
+
+    const badgeYoYFat = document.getElementById('kpiBadgeYoYFaturamento');
+    if (badgeYoYFat) {
+        const pct = kpis.yoy_faturamento_pct;
+        const sign = pct > 0 ? '+' : '';
+        badgeYoYFat.textContent = `${sign}${pct.toFixed(1)}% YoY`;
+        badgeYoYFat.className = 'kpi-badge ' + (pct > 0 ? 'positive' : (pct < 0 ? 'negative' : 'neutral'));
+    }
+    const subFat = document.getElementById('kpiSubFaturamento');
+    if (subFat) subFat.textContent = `vs R$ ${formatMoney(kpis.faturamento_ano_anterior_periodo)} em ${anoAnt}`;
+
+    // 2. Volume de OS
+    const elOS = document.getElementById('kpiTotalOS');
+    if (elOS) elOS.textContent = (new Intl.NumberFormat('pt-BR').format(kpis.quantidade_ano_base)) + ' OS';
+
+    const badgeYoYOS = document.getElementById('kpiBadgeYoYOS');
+    if (badgeYoYOS) {
+        const pct = kpis.yoy_quantidade_pct;
+        const sign = pct > 0 ? '+' : '';
+        badgeYoYOS.textContent = `${sign}${pct.toFixed(1)}% YoY`;
+        badgeYoYOS.className = 'kpi-badge ' + (pct > 0 ? 'positive' : (pct < 0 ? 'negative' : 'neutral'));
+    }
+    const subOS = document.getElementById('kpiSubOS');
+    if (subOS) subOS.textContent = `vs ${new Intl.NumberFormat('pt-BR').format(kpis.quantidade_ano_anterior_periodo)} OS em ${anoAnt}`;
+
+    // 3. Ticket Médio
+    const elTicket = document.getElementById('kpiTicketMedio');
+    if (elTicket) elTicket.textContent = 'R$ ' + formatMoney(kpis.ticket_medio_ano_base);
+
+    // 4. Mês Recorde do Ano
+    const elMelhorMes = document.getElementById('kpiMelhorMes');
+    const subMelhorMes = document.getElementById('kpiSubMelhorMes');
+    if (elMelhorMes && kpis.melhor_mes) {
+        elMelhorMes.textContent = `${kpis.melhor_mes.nome || '---'} / ${anoBase}`;
+        if (subMelhorMes) {
+            subMelhorMes.textContent = `R$ ${formatMoney(kpis.melhor_mes.valor)} • ${new Intl.NumberFormat('pt-BR').format(kpis.melhor_mes.quantidade)} OS`;
+        }
+    }
+
+    // 5. Mês Atual em Aberto
+    const labelMesAtual = document.getElementById('kpiLabelMesAtual');
+    const elMesAtualVal = document.getElementById('kpiMesAtualValor');
+    const subMesAtual = document.getElementById('kpiSubMesAtual');
+    if (kpis.mes_atual_info) {
+        const info = kpis.mes_atual_info;
+        if (labelMesAtual) {
+            labelMesAtual.textContent = `${info.nome} (Dia ${info.dias_corridos} de ${info.dias_totais})`;
+        }
+        if (elMesAtualVal) {
+            elMesAtualVal.textContent = 'R$ ' + formatMoney(info.valor_realizado);
+        }
+        if (subMesAtual) {
+            subMesAtual.textContent = `🎯 Projeção pró-rata: R$ ${formatMoney(info.valor_projetado)}`;
+        }
+    } else {
+        if (labelMesAtual) labelMesAtual.textContent = `Mês Atual (${anoBase})`;
+        if (elMesAtualVal) elMesAtualVal.textContent = 'Fechado';
+        if (subMesAtual) subMesAtual.textContent = 'Exercício encerrado';
+    }
+
+    // 6. Projeção Fechamento Anual
+    const elProj = document.getElementById('kpiProjecaoFechamento');
+    if (elProj) {
+        elProj.textContent = 'R$ ' + formatMoney(kpis.projecao_fechamento_ano);
+    }
+}
+
+// Renderiza Gráfico 1: Curva Trienal de Vendas
+function renderChartCurvaTrienal(data, metric) {
+    const canvas = document.getElementById('chartCurvaTrienal');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const theme = getChartThemeOptions();
+
+    if (chartCurvaTrienalInstance) {
+        chartCurvaTrienalInstance.destroy();
+        chartCurvaTrienalInstance = null;
+    }
+
+    const mesesLabels = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const anos = data.anos || [];
+    const containerBadges = document.getElementById('chartTrienalBadges');
+    if (containerBadges) containerBadges.innerHTML = '';
+
+    const datasets = anos.map((ano, idx) => {
+        const pal = DASHBOARD_YEAR_PALETTE[idx % DASHBOARD_YEAR_PALETTE.length];
+        const mesesAno = (data.mensal_por_ano && data.mensal_por_ano[String(ano)]) || [];
+        
+        const isAnoBase = (ano === data.ano_base);
+        const values = mesesAno.map(m => {
+            if (metric === 'quantidade') return m.quantidade;
+            if (metric === 'ticket_medio') return m.ticket_medio;
+            return m.valor;
+        });
+
+        // Injeta badge informativo do ano
+        if (containerBadges) {
+            const badge = document.createElement('span');
+            badge.className = 'badge-year';
+            badge.style.background = pal.bg;
+            badge.style.color = pal.point;
+            badge.style.border = `1px solid ${pal.border}`;
+            badge.innerHTML = `<span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${pal.border};"></span> ${ano}`;
+            containerBadges.appendChild(badge);
+        }
+
+        return {
+            label: `Ano ${ano}`,
+            data: values,
+            borderColor: pal.border,
+            backgroundColor: pal.bg,
+            borderWidth: isAnoBase ? 3.5 : 2,
+            tension: 0.35,
+            pointRadius: isAnoBase ? 5 : 3.5,
+            pointHoverRadius: 7,
+            pointBackgroundColor: pal.point,
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            fill: false
+        };
+    });
+
+    chartCurvaTrienalInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: mesesLabels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 12, weight: '600' },
+                        usePointStyle: true,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    backgroundColor: theme.tooltipBg,
+                    titleColor: theme.tooltipTitleColor,
+                    bodyColor: theme.tooltipBodyColor,
+                    borderColor: theme.tooltipBorder,
+                    borderWidth: 1,
+                    padding: 12,
+                    boxPadding: 6,
+                    usePointStyle: true,
+                    callbacks: {
+                        label: function(context) {
+                            const val = context.parsed.y;
+                            return ` ${context.dataset.label}: ${formatDashboardValue(val, metric)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: theme.gridColor },
+                    ticks: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 11, weight: '500' }
+                    }
+                },
+                y: {
+                    grid: { color: theme.gridColor },
+                    ticks: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 11 },
+                        callback: function(value) {
+                            if (metric === 'quantidade') return value;
+                            if (value >= 1000000) return 'R$ ' + (value / 1000000).toFixed(1) + 'M';
+                            if (value >= 1000) return 'R$ ' + (value / 1000).toFixed(0) + 'k';
+                            return 'R$ ' + value;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Renderiza Gráfico 2: Ano Corrente (Barras) & Linha de Tendência
+function renderChartAnoCorrenteTendencia(data, metric) {
+    const canvas = document.getElementById('chartAnoCorrenteTendencia');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const theme = getChartThemeOptions();
+
+    if (chartAnoCorrenteTendenciaInstance) {
+        chartAnoCorrenteTendenciaInstance.destroy();
+        chartAnoCorrenteTendenciaInstance = null;
+    }
+
+    const mesesLabels = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const anoBase = data.ano_base;
+    const mesesAno = (data.mensal_por_ano && data.mensal_por_ano[String(anoBase)]) || [];
+
+    // Valores reais das barras
+    const barValues = mesesAno.map(m => {
+        if (metric === 'quantidade') return m.quantidade;
+        if (metric === 'ticket_medio') return m.ticket_medio;
+        return m.valor;
+    });
+
+    // Cores das barras com destaque no mês em andamento
+    const barBackgrounds = mesesAno.map(m => {
+        if (m.is_corrente) return 'rgba(56, 189, 248, 0.7)'; // Azul céu vibrante para mês em andamento
+        if (m.is_futuro) return 'rgba(100, 116, 139, 0.2)'; // Cinza sutil para meses futuros
+        return 'rgba(16, 185, 129, 0.75)'; // Verde esmeralda para meses realizados
+    });
+
+    const barBorders = mesesAno.map(m => {
+        if (m.is_corrente) return '#0284c7';
+        if (m.is_futuro) return '#64748b';
+        return '#059669';
+    });
+
+    // Valores da Linha de Tendência
+    let trendValues = [];
+    if (metric === 'quantidade') {
+        trendValues = (data.tendencia_ano_base && data.tendencia_ano_base.quantidades_12_meses) || [];
+    } else {
+        trendValues = (data.tendencia_ano_base && data.tendencia_ano_base.valores_12_meses) || [];
+    }
+
+    // Atualiza badge de taxa da tendência
+    const badgeTaxa = document.getElementById('badgeTendenciaTaxa');
+    if (badgeTaxa && data.tendencia_ano_base) {
+        const taxa = data.tendencia_ano_base.taxa_crescimento_mensal;
+        const sign = taxa > 0 ? '+' : '';
+        const icon = taxa > 0 ? '📈' : (taxa < 0 ? '📉' : '➡️');
+        badgeTaxa.textContent = `${icon} Tendência: ${sign}${taxa.toFixed(1)}% ao mês`;
+    }
+
+    chartAnoCorrenteTendenciaInstance = new Chart(ctx, {
+        data: {
+            labels: mesesLabels,
+            datasets: [
+                {
+                    type: 'bar',
+                    label: `Vendas Realizadas ${anoBase}`,
+                    data: barValues,
+                    backgroundColor: barBackgrounds,
+                    borderColor: barBorders,
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                    barPercentage: 0.65,
+                    order: 2
+                },
+                {
+                    type: 'line',
+                    label: 'Linha de Tendência Linear (OLS)',
+                    data: trendValues,
+                    borderColor: '#818cf8',
+                    backgroundColor: 'transparent',
+                    borderWidth: 3,
+                    borderDash: [6, 4],
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#818cf8',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.15,
+                    order: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 12, weight: '600' },
+                        usePointStyle: true,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    backgroundColor: theme.tooltipBg,
+                    titleColor: theme.tooltipTitleColor,
+                    bodyColor: theme.tooltipBodyColor,
+                    borderColor: theme.tooltipBorder,
+                    borderWidth: 1,
+                    padding: 12,
+                    boxPadding: 6,
+                    usePointStyle: true,
+                    callbacks: {
+                        label: function(context) {
+                            const val = context.parsed.y;
+                            return ` ${context.dataset.label}: ${formatDashboardValue(val, metric)}`;
+                        },
+                        afterBody: function(items) {
+                            const idx = items[0].dataIndex;
+                            const mObj = mesesAno[idx];
+                            if (mObj && mObj.is_corrente && data.kpis.mes_atual_info) {
+                                return [
+                                    `ℹ️ Mês em andamento (${data.kpis.mes_atual_info.dias_corridos} de ${data.kpis.mes_atual_info.dias_totais} dias)`,
+                                    `🎯 Projeção pró-rata: ${formatDashboardValue(data.kpis.mes_atual_info.valor_projetado, metric)}`
+                                ];
+                            }
+                            return [];
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: theme.gridColor },
+                    ticks: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 11, weight: '500' }
+                    }
+                },
+                y: {
+                    grid: { color: theme.gridColor },
+                    ticks: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 11 },
+                        callback: function(value) {
+                            if (metric === 'quantidade') return value;
+                            if (value >= 1000000) return 'R$ ' + (value / 1000000).toFixed(1) + 'M';
+                            if (value >= 1000) return 'R$ ' + (value / 1000).toFixed(0) + 'k';
+                            return 'R$ ' + value;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Renderiza Tabela Detalhada Analítica Mês a Mês
+function renderDashboardTabelaMensal(data, metric) {
+    const thead = document.getElementById('theadDashboardMensal');
+    const tbody = document.getElementById('tbodyDashboardMensal');
+    const tfoot = document.getElementById('tfootDashboardMensal');
+    const badgeTableMetric = document.getElementById('badgeTableMetric');
+    if (!thead || !tbody || !tfoot) return;
+
+    if (badgeTableMetric) {
+        if (metric === 'quantidade') {
+            badgeTableMetric.textContent = 'Métrica: Quantidade de OS';
+            badgeTableMetric.className = 'badge badge-green';
+        } else if (metric === 'ticket_medio') {
+            badgeTableMetric.textContent = 'Métrica: Ticket Médio (R$)';
+            badgeTableMetric.className = 'badge badge-blue';
+        } else {
+            badgeTableMetric.textContent = 'Métrica: Valor Total Faturado (R$)';
+            badgeTableMetric.className = 'badge badge-blue';
+        }
+    }
+
+    const anos = data.anos || [];
+    const anoBase = data.ano_base;
+    const anoAnt = anoBase - 1;
+
+    // Cabeçalho da Tabela
+    let thCols = '<tr><th style="width: 130px;">Mês</th>';
+    anos.forEach(ano => {
+        const isBase = (ano === anoBase);
+        thCols += `<th style="text-align: right; ${isBase ? 'color: #38bdf8; font-weight:800;' : ''}">${ano} ${isBase ? '(Atual)' : ''}</th>`;
+    });
+    thCols += `<th style="text-align: right;">Dif. (${anoAnt}➔${anoBase})</th>`;
+    thCols += `<th style="text-align: right;">YoY (%)</th>`;
+    thCols += `<th style="text-align: right;">Tendência (${anoBase})</th>`;
+    thCols += `<th style="text-align: center;">Status</th></tr>`;
+    thead.innerHTML = thCols;
+
+    const mesesNomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    let rowsHtml = '';
+
+    const trendArray = (metric === 'quantidade')
+        ? (data.tendencia_ano_base.quantidades_12_meses || [])
+        : (data.tendencia_ano_base.valores_12_meses || []);
+
+    for (let m = 1; m <= 12; m++) {
+        const mNome = mesesNomes[m - 1];
+        let row = `<tr><td><strong>${mNome}</strong></td>`;
+
+        let valAnoBase = 0;
+        let valAnoAnt = 0;
+        let isMesCorrente = false;
+        let isFuturo = false;
+
+        anos.forEach(ano => {
+            const mList = (data.mensal_por_ano && data.mensal_por_ano[String(ano)]) || [];
+            const item = mList[m - 1] || {};
+            let val = (metric === 'quantidade') ? item.quantidade : (metric === 'ticket_medio' ? item.ticket_medio : item.valor);
+            val = val || 0;
+
+            if (ano === anoBase) {
+                valAnoBase = val;
+                isMesCorrente = !!item.is_corrente;
+                isFuturo = !!item.is_futuro;
+            }
+            if (ano === anoAnt) {
+                valAnoAnt = val;
+            }
+
+            row += `<td style="text-align: right; ${ano === anoBase ? 'font-weight: 700;' : ''}">${formatDashboardValue(val, metric)}</td>`;
+        });
+
+        // Diferença absoluta e percentual
+        const diffAbs = valAnoBase - valAnoAnt;
+        let diffPct = 0;
+        if (valAnoAnt > 0) {
+            diffPct = ((valAnoBase / valAnoAnt) - 1.0) * 100;
+        }
+
+        const diffClass = diffAbs > 0 ? 'diff-positive' : (diffAbs < 0 ? 'diff-negative' : 'diff-neutral');
+        const sign = diffAbs > 0 ? '+' : '';
+
+        row += `<td style="text-align: right;" class="${diffClass}">${sign}${formatDashboardValue(diffAbs, metric)}</td>`;
+        row += `<td style="text-align: right;" class="${diffClass}">${valAnoAnt > 0 ? (sign + diffPct.toFixed(1) + '%') : '---'}</td>`;
+
+        // Linha de tendência correspondente
+        const trendVal = trendArray[m - 1] || 0;
+        row += `<td style="text-align: right; color: #818cf8; font-weight: 600;">${formatDashboardValue(trendVal, metric)}</td>`;
+
+        // Status do mês
+        let statusBadge = '<span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #cbd5e1;">Fechado</span>';
+        if (isMesCorrente) {
+            statusBadge = '<span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8;">Em Aberto</span>';
+        } else if (isFuturo) {
+            statusBadge = '<span class="badge" style="background: rgba(100, 116, 139, 0.1); color: var(--text-muted);">Projetado</span>';
+        }
+        row += `<td style="text-align: center;">${statusBadge}</td></tr>`;
+
+        rowsHtml += row;
+    }
+    tbody.innerHTML = rowsHtml;
+
+    // Totais no Rodapé
+    let tfootHtml = '<tr style="font-weight: 800; background: rgba(0,0,0,0.2);"><td>TOTAL DO ANO</td>';
+    let totAnoBase = 0;
+    let totAnoAnt = 0;
+
+    anos.forEach(ano => {
+        const tot = (data.totais_por_ano && data.totais_por_ano[String(ano)]) || {};
+        let valTot = (metric === 'quantidade') ? tot.quantidade_total : (metric === 'ticket_medio' ? tot.ticket_medio : tot.valor_total);
+        valTot = valTot || 0;
+
+        if (ano === anoBase) totAnoBase = valTot;
+        if (ano === anoAnt) totAnoAnt = valTot;
+
+        tfootHtml += `<td style="text-align: right;">${formatDashboardValue(valTot, metric)}</td>`;
+    });
+
+    const totDiff = totAnoBase - totAnoAnt;
+    const totPct = totAnoAnt > 0 ? (((totAnoBase / totAnoAnt) - 1.0) * 100) : 0;
+    const totClass = totDiff > 0 ? 'diff-positive' : (totDiff < 0 ? 'diff-negative' : 'diff-neutral');
+    const totSign = totDiff > 0 ? '+' : '';
+
+    tfootHtml += `<td style="text-align: right;" class="${totClass}">${totSign}${formatDashboardValue(totDiff, metric)}</td>`;
+    tfootHtml += `<td style="text-align: right;" class="${totClass}">${totAnoAnt > 0 ? (totSign + totPct.toFixed(1) + '%') : '---'}</td>`;
+    tfootHtml += `<td style="text-align: right; color: #818cf8;">---</td>`;
+    tfootHtml += `<td style="text-align: center;">Consolidado</td></tr>`;
+
+    tfoot.innerHTML = tfootHtml;
+}
+
+// Exportação Excel/CSV da Tabela de Vendas
+function exportDashboardExcel() {
+    if (!dashboardVendasDataCache) {
+        showToast('Nenhum dado carregado para exportar.', 'error');
+        return;
+    }
+
+    const data = dashboardVendasDataCache;
+    const anos = data.anos || [];
+    const anoBase = data.ano_base;
+    const anoAnt = anoBase - 1;
+    const metric = dashboardCurrentMetric;
+
+    const mesesNomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const trendArray = (metric === 'quantidade')
+        ? (data.tendencia_ano_base.quantidades_12_meses || [])
+        : (data.tendencia_ano_base.valores_12_meses || []);
+
+    let csv = '\uFEFF'; // UTF-8 BOM
+    csv += `RELATÓRIO DE VENDAS - DASHBOARD COMPARATIVO\n`;
+    csv += `Métrica: ${metric.toUpperCase()};Ano Base: ${anoBase};Data de Geração: ${new Date().toLocaleString('pt-BR')}\n\n`;
+
+    // Cabeçalho
+    let header = 'Mês';
+    anos.forEach(ano => header += `;${ano}`);
+    header += `;Diferença (${anoAnt} vs ${anoBase});Variação YoY (%);Tendência ${anoBase};Status\n`;
+    csv += header;
+
+    // Linhas mensais
+    for (let m = 1; m <= 12; m++) {
+        let line = mesesNomes[m - 1];
+        let valBase = 0;
+        let valAnt = 0;
+        let status = 'Fechado';
+
+        anos.forEach(ano => {
+            const mList = (data.mensal_por_ano && data.mensal_por_ano[String(ano)]) || [];
+            const item = mList[m - 1] || {};
+            const val = (metric === 'quantidade') ? item.quantidade : (metric === 'ticket_medio' ? item.ticket_medio : item.valor);
+            if (ano === anoBase) {
+                valBase = val || 0;
+                if (item.is_corrente) status = 'Em Aberto';
+                else if (item.is_futuro) status = 'Projetado';
+            }
+            if (ano === anoAnt) valAnt = val || 0;
+            line += `;${(val || 0).toString().replace('.', ',')}`;
+        });
+
+        const diff = valBase - valAnt;
+        const pct = valAnt > 0 ? (((valBase / valAnt) - 1.0) * 100).toFixed(1).replace('.', ',') + '%' : '0%';
+        const trend = (trendArray[m - 1] || 0).toString().replace('.', ',');
+
+        line += `;${diff.toString().replace('.', ',')};${pct};${trend};${status}\n`;
+        csv += line;
+    }
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `Dashboard_Vendas_${anoBase}_${metric}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Planilha do dashboard exportada com sucesso!', 'success');
+}
+
+// Inicialização dos Event Listeners do Dashboard
+(function initDashboardEvents() {
+    // 1. Toggles de Métrica (Pills)
+    const pills = [
+        document.getElementById('btnMetricValor'),
+        document.getElementById('btnMetricQtd'),
+        document.getElementById('btnMetricTicket')
+    ];
+
+    pills.forEach(btn => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            pills.forEach(b => b && b.classList.remove('active'));
+            btn.classList.add('active');
+            dashboardCurrentMetric = btn.getAttribute('data-metric') || 'valor';
+
+            if (dashboardVendasDataCache) {
+                renderChartCurvaTrienal(dashboardVendasDataCache, dashboardCurrentMetric);
+                renderChartAnoCorrenteTendencia(dashboardVendasDataCache, dashboardCurrentMetric);
+                renderDashboardTabelaMensal(dashboardVendasDataCache, dashboardCurrentMetric);
+            }
+        });
+    });
+
+    // 2. Filtros e Selects
+    const selAnoBase = document.getElementById('selectDashboardAnoBase');
+    const selQtdAnos = document.getElementById('selectDashboardQtdAnos');
+    const selTipo = document.getElementById('selectDashboardTipo');
+    const chkFaturadas = document.getElementById('chkDashboardApenasFaturadas');
+
+    [selAnoBase, selQtdAnos, selTipo, chkFaturadas].forEach(el => {
+        if (el) {
+            el.addEventListener('change', () => {
+                loadDashboardVendasData();
+            });
+        }
+    });
+
+    // 3. Botões de Ação
+    const btnRefresh = document.getElementById('btnDashboardRefresh');
+    if (btnRefresh) {
+        btnRefresh.addEventListener('click', loadDashboardVendasData);
+    }
+
+    const btnExport = document.getElementById('btnDashboardExportExcel');
+    if (btnExport) {
+        btnExport.addEventListener('click', exportDashboardExcel);
+    }
+
+    const btnPrint = document.getElementById('btnDashboardPrint');
+    if (btnPrint) {
+        btnPrint.addEventListener('click', () => {
+            window.print();
+        });
+    }
+
+    // Subnav Toggles (Vendas vs Financeiro)
+    const btnSubnavVendas = document.getElementById('btnSubnavVendas');
+    const btnSubnavFinanceiro = document.getElementById('btnSubnavFinanceiro');
+    if (btnSubnavVendas) {
+        btnSubnavVendas.addEventListener('click', () => switchSubDashboard('vendas'));
+    }
+    if (btnSubnavFinanceiro) {
+        btnSubnavFinanceiro.addEventListener('click', () => switchSubDashboard('financeiro'));
+    }
+})();
+
+// ==========================================================================
+// 💳 DASHBOARD FINANCEIRO - CONTAS A PAGAR, RECEBER & PONTO DE EQUILÍBRIO
+// ==========================================================================
+let dashboardFinanceiroDataCache = null;
+let dashboardFinCurrentMetric = 'valor'; // 'valor' | 'quantidade' | 'ticket_medio'
+let dashboardFinTrienalSubView = 'receber'; // 'receber' | 'pagar' | 'saldo'
+let chartFinanceiroEquilibrioInstance = null;
+let chartFinanceiroTrienalInstance = null;
+
+// Alternância entre Sub-Dashboards (Vendas vs Financeiro)
+function switchSubDashboard(subdashName) {
+    const btnVendas = document.getElementById('btnSubnavVendas');
+    const btnFin = document.getElementById('btnSubnavFinanceiro');
+    const subVendas = document.getElementById('subdashVendas');
+    const subFin = document.getElementById('subdashFinanceiro');
+
+    if (subdashName === 'financeiro') {
+        if (btnVendas) btnVendas.classList.remove('active');
+        if (btnFin) btnFin.classList.add('active');
+        if (subVendas) subVendas.classList.add('hidden');
+        if (subFin) subFin.classList.remove('hidden');
+
+        if (!dashboardFinanceiroDataCache) {
+            loadDashboardFinanceiroData();
+        }
+    } else {
+        if (btnFin) btnFin.classList.remove('active');
+        if (btnVendas) btnVendas.classList.add('active');
+        if (subFin) subFin.classList.add('hidden');
+        if (subVendas) subVendas.classList.remove('hidden');
+
+        if (!dashboardVendasDataCache) {
+            loadDashboardVendasData();
+        }
+    }
+}
+
+async function loadDashboardFinanceiroData() {
+    const selAnoBase = document.getElementById('selectFinAnoBase');
+    const selQtdAnos = document.getElementById('selectFinQtdAnos');
+    const selRegime = document.getElementById('selectFinRegime');
+    const selSituacao = document.getElementById('selectFinSituacao');
+    const btnRefresh = document.getElementById('btnFinRefresh');
+
+    const anoBase = selAnoBase ? selAnoBase.value : 2026;
+    const qtdAnos = selQtdAnos ? selQtdAnos.value : 3;
+    const regime = selRegime ? selRegime.value : 'vencimento';
+    const situacao = selSituacao ? selSituacao.value : 'todos';
+
+    if (btnRefresh) {
+        btnRefresh.disabled = true;
+        btnRefresh.innerHTML = '<span>⏳</span> Atualizando...';
+    }
+
+    try {
+        const url = `/api/dashboard/financeiro-curva?ano_base=${encodeURIComponent(anoBase)}&qtd_anos=${encodeURIComponent(qtdAnos)}&regime=${encodeURIComponent(regime)}&situacao=${encodeURIComponent(situacao)}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Falha ao buscar dados do dashboard financeiro.');
+        }
+        const data = await res.json();
+        dashboardFinanceiroDataCache = data;
+
+        // Atualiza títulos dos gráficos
+        const titleEquilibrio = document.getElementById('titleChartFinanceiroEquilibrio');
+        if (titleEquilibrio) {
+            titleEquilibrio.textContent = `⚖️ Confronto Receber x Pagar & Ponto de Equilíbrio (${data.ano_base})`;
+        }
+        const titleTrienal = document.getElementById('titleChartFinanceiroTrienal');
+        if (titleTrienal) {
+            titleTrienal.textContent = `📊 Curvas Trienais Comparativas (${data.anos.join(' vs ')})`;
+        }
+
+        // Renderiza KPIs, Gráficos e Tabela
+        renderDashboardFinanceiroKPIs(data);
+        renderChartFinanceiroEquilibrio(data, dashboardFinCurrentMetric);
+        renderChartFinanceiroTrienal(data, dashboardFinCurrentMetric, dashboardFinTrienalSubView);
+        renderDashboardFinanceiroTabela(data, dashboardFinCurrentMetric);
+
+        showToast('Dashboard financeiro atualizado com sucesso!', 'success');
+    } catch (e) {
+        console.error('Erro ao carregar dashboard financeiro:', e);
+        showToast(`Erro ao carregar financeiro: ${e.message}`, 'error');
+    } finally {
+        if (btnRefresh) {
+            btnRefresh.disabled = false;
+            btnRefresh.innerHTML = '<span>🔄</span> Atualizar';
+        }
+    }
+}
+
+// Renderiza Cards de KPIs Financeiros
+function renderDashboardFinanceiroKPIs(data) {
+    if (!data || !data.kpis) return;
+    const kpis = data.kpis;
+    const anoBase = data.ano_base;
+    const anoAnt = anoBase - 1;
+
+    // 1. Contas a Receber
+    const elRec = document.getElementById('kpiFinReceberTotal');
+    if (elRec) elRec.textContent = 'R$ ' + formatMoney(kpis.receber_ano_base);
+
+    const badgeYoYRec = document.getElementById('kpiBadgeYoYReceber');
+    if (badgeYoYRec) {
+        const pct = kpis.yoy_receber_pct;
+        const sign = pct > 0 ? '+' : '';
+        badgeYoYRec.textContent = `${sign}${pct.toFixed(1)}% YoY`;
+        badgeYoYRec.className = 'kpi-badge ' + (pct > 0 ? 'positive' : (pct < 0 ? 'negative' : 'neutral'));
+    }
+    const subRec = document.getElementById('kpiSubReceber');
+    if (subRec) subRec.textContent = `vs R$ ${formatMoney(kpis.receber_ano_ant_periodo)} em ${anoAnt}`;
+
+    // 2. Contas a Pagar
+    const elPag = document.getElementById('kpiFinPagarTotal');
+    if (elPag) elPag.textContent = 'R$ ' + formatMoney(kpis.pagar_ano_base);
+
+    const badgeYoYPag = document.getElementById('kpiBadgeYoYPagar');
+    if (badgeYoYPag) {
+        const pct = kpis.yoy_pagar_pct;
+        const sign = pct > 0 ? '+' : '';
+        badgeYoYPag.textContent = `${sign}${pct.toFixed(1)}% YoY`;
+        // Para despesas a pagar, crescimento pode ser vermelho
+        badgeYoYPag.className = 'kpi-badge ' + (pct <= 0 ? 'positive' : 'negative');
+    }
+    const subPag = document.getElementById('kpiSubPagar');
+    if (subPag) subPag.textContent = `vs R$ ${formatMoney(kpis.pagar_ano_ant_periodo)} em ${anoAnt}`;
+
+    // 3. Saldo Líquido Operacional
+    const elSaldo = document.getElementById('kpiFinSaldoLiquido');
+    const badgeSaldo = document.getElementById('kpiBadgeSaldoStatus');
+    const subSaldo = document.getElementById('kpiSubSaldo');
+    if (elSaldo) {
+        const sign = kpis.saldo_liquido_ano_base > 0 ? '+' : '';
+        elSaldo.textContent = `${sign}R$ ${formatMoney(kpis.saldo_liquido_ano_base)}`;
+    }
+    if (badgeSaldo) {
+        if (kpis.saldo_liquido_ano_base >= 0) {
+            badgeSaldo.textContent = 'Superávit';
+            badgeSaldo.className = 'kpi-badge positive';
+        } else {
+            badgeSaldo.textContent = 'Déficit';
+            badgeSaldo.className = 'kpi-badge negative';
+        }
+    }
+    if (subSaldo) {
+        subSaldo.textContent = `Resultado operacional acumulado (${anoBase})`;
+    }
+
+    // 4. Índice de Cobertura do Ponto de Equilíbrio
+    const elCob = document.getElementById('kpiFinCobertura');
+    const badgeEq = document.getElementById('kpiBadgeEquilibrio');
+    const subEq = document.getElementById('kpiSubEquilibrio');
+    if (elCob) elCob.textContent = `${kpis.indice_cobertura_ano_base.toFixed(1)}%`;
+    if (badgeEq) {
+        if (kpis.indice_cobertura_ano_base >= 100) {
+            badgeEq.textContent = 'Acima do Breakeven';
+            badgeEq.className = 'kpi-badge positive';
+        } else {
+            badgeEq.textContent = 'Abaixo do Breakeven';
+            badgeEq.className = 'kpi-badge negative';
+        }
+    }
+    if (subEq) {
+        subEq.textContent = `Meta: 100%+ para cobrir todas as despesas`;
+    }
+
+    // 5. Mês Atual (Em Aberto)
+    const labelMesAtual = document.getElementById('kpiFinLabelMesAtual');
+    const elMesAtualSaldo = document.getElementById('kpiFinMesAtualSaldo');
+    const subMesAtual = document.getElementById('kpiFinSubMesAtual');
+    if (kpis.mes_atual_info) {
+        const info = kpis.mes_atual_info;
+        if (labelMesAtual) labelMesAtual.textContent = `${info.nome} (Dia ${info.dias_corridos} de ${info.dias_totais})`;
+        if (elMesAtualSaldo) {
+            const sign = info.saldo_realizado > 0 ? '+' : '';
+            elMesAtualSaldo.textContent = `${sign}R$ ${formatMoney(info.saldo_realizado)}`;
+        }
+        if (subMesAtual) {
+            const signP = info.saldo_projetado > 0 ? '+' : '';
+            subMesAtual.textContent = `🎯 Projeção pró-rata: ${signP}R$ ${formatMoney(info.saldo_projetado)}`;
+        }
+    } else {
+        if (labelMesAtual) labelMesAtual.textContent = `Mês Atual (${anoBase})`;
+        if (elMesAtualSaldo) elMesAtualSaldo.textContent = 'Fechado';
+        if (subMesAtual) subMesAtual.textContent = 'Exercício encerrado';
+    }
+
+    // 6. Pendentes em Aberto
+    const elAbertoSaldo = document.getElementById('kpiFinAbertoSaldo');
+    const subAberto = document.getElementById('kpiFinSubAberto');
+    if (elAbertoSaldo) {
+        const saldoAberto = kpis.receber_aberto_ano_base - kpis.pagar_aberto_ano_base;
+        const sign = saldoAberto > 0 ? '+' : '';
+        elAbertoSaldo.textContent = `${sign}R$ ${formatMoney(saldoAberto)}`;
+    }
+    if (subAberto) {
+        subAberto.textContent = `Rec: R$ ${formatMoney(kpis.receber_aberto_ano_base)} | Pag: R$ ${formatMoney(kpis.pagar_aberto_ano_base)}`;
+    }
+}
+
+// Renderiza Gráfico 1: Confronto Receber x Pagar & Linha de Ponto de Equilíbrio
+function renderChartFinanceiroEquilibrio(data, metric) {
+    const canvas = document.getElementById('chartFinanceiroEquilibrio');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const theme = getChartThemeOptions();
+
+    if (chartFinanceiroEquilibrioInstance) {
+        chartFinanceiroEquilibrioInstance.destroy();
+        chartFinanceiroEquilibrioInstance = null;
+    }
+
+    const mesesLabels = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const anoBase = data.ano_base;
+    const mesesAno = (data.mensal_por_ano && data.mensal_por_ano[String(anoBase)]) || [];
+
+    // Valores de Receber e Pagar
+    const recValues = mesesAno.map(m => {
+        if (metric === 'quantidade') return m.receber.quantidade;
+        if (metric === 'ticket_medio') return m.receber.ticket_medio;
+        return m.receber.valor;
+    });
+
+    const pagValues = mesesAno.map(m => {
+        if (metric === 'quantidade') return m.pagar.quantidade;
+        if (metric === 'ticket_medio') return m.pagar.ticket_medio;
+        return m.pagar.valor;
+    });
+
+    // Ponto de Equilíbrio (Despesas a Pagar que determinam a meta de empate)
+    const breakevenValues = pagValues;
+
+    // Saldo Líquido (Receber - Pagar)
+    const saldoValues = mesesAno.map((m, idx) => {
+        return Math.round((recValues[idx] - pagValues[idx]) * 100) / 100;
+    });
+
+    // Atualiza badge de Ponto de Equilíbrio
+    const badgeStatus = document.getElementById('badgeFinEquilibrioStatus');
+    if (badgeStatus) {
+        const cob = data.kpis.indice_cobertura_ano_base;
+        const icon = cob >= 100 ? '✅' : '⚠️';
+        badgeStatus.textContent = `${icon} Cobertura Breakeven: ${cob.toFixed(1)}%`;
+    }
+
+    chartFinanceiroEquilibrioInstance = new Chart(ctx, {
+        data: {
+            labels: mesesLabels,
+            datasets: [
+                {
+                    type: 'bar',
+                    label: 'Contas a Receber (Receitas)',
+                    data: recValues,
+                    backgroundColor: 'rgba(16, 185, 129, 0.75)',
+                    borderColor: '#059669',
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                    barPercentage: 0.65,
+                    order: 2
+                },
+                {
+                    type: 'bar',
+                    label: 'Contas a Pagar (Despesas)',
+                    data: pagValues,
+                    backgroundColor: 'rgba(239, 68, 68, 0.75)',
+                    borderColor: '#dc2626',
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                    barPercentage: 0.65,
+                    order: 2
+                },
+                {
+                    type: 'line',
+                    label: 'Linha de Ponto de Equilíbrio (Breakeven)',
+                    data: breakevenValues,
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2.5,
+                    borderDash: [5, 4],
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#f59e0b',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.2,
+                    order: 1
+                },
+                {
+                    type: 'line',
+                    label: 'Saldo Líquido (Receber - Pagar)',
+                    data: saldoValues,
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'transparent',
+                    borderWidth: 3,
+                    pointRadius: 4.5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: '#38bdf8',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    tension: 0.25,
+                    order: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 12, weight: '600' },
+                        usePointStyle: true,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    backgroundColor: theme.tooltipBg,
+                    titleColor: theme.tooltipTitleColor,
+                    bodyColor: theme.tooltipBodyColor,
+                    borderColor: theme.tooltipBorder,
+                    borderWidth: 1,
+                    padding: 12,
+                    boxPadding: 6,
+                    usePointStyle: true,
+                    callbacks: {
+                        label: function(context) {
+                            const val = context.parsed.y;
+                            return ` ${context.dataset.label}: ${formatDashboardValue(val, metric)}`;
+                        },
+                        afterBody: function(items) {
+                            const idx = items[0].dataIndex;
+                            const mObj = mesesAno[idx];
+                            if (mObj) {
+                                const saldo = mObj.saldo_liquido;
+                                const cob = mObj.indice_cobertura;
+                                const sign = saldo >= 0 ? '+' : '';
+                                const st = saldo >= 0 ? 'Superávit Operacional' : 'Déficit Operacional';
+                                return [
+                                    `━━━━━━━━━━━━━━━━━━━━`,
+                                    `Resultado: ${sign}R$ ${formatMoney(saldo)} (${st})`,
+                                    `Cobertura Breakeven: ${cob.toFixed(1)}%`
+                                ];
+                            }
+                            return [];
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: theme.gridColor },
+                    ticks: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 11, weight: '500' }
+                    }
+                },
+                y: {
+                    grid: { color: theme.gridColor },
+                    ticks: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 11 },
+                        callback: function(value) {
+                            if (metric === 'quantidade') return value;
+                            if (Math.abs(value) >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+                            if (Math.abs(value) >= 1000) return (value / 1000).toFixed(0) + 'k';
+                            return value;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Renderiza Gráfico 2: Curvas Trienais Comparativas de Pagar & Receber
+function renderChartFinanceiroTrienal(data, metric, subview) {
+    const canvas = document.getElementById('chartFinanceiroTrienal');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const theme = getChartThemeOptions();
+
+    if (chartFinanceiroTrienalInstance) {
+        chartFinanceiroTrienalInstance.destroy();
+        chartFinanceiroTrienalInstance = null;
+    }
+
+    const mesesLabels = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const anos = data.anos || [];
+
+    const datasets = anos.map((ano, idx) => {
+        const pal = DASHBOARD_YEAR_PALETTE[idx % DASHBOARD_YEAR_PALETTE.length];
+        const mesesAno = (data.mensal_por_ano && data.mensal_por_ano[String(ano)]) || [];
+        const isAnoBase = (ano === data.ano_base);
+
+        const values = mesesAno.map(m => {
+            if (subview === 'pagar') {
+                if (metric === 'quantidade') return m.pagar.quantidade;
+                if (metric === 'ticket_medio') return m.pagar.ticket_medio;
+                return m.pagar.valor;
+            } else if (subview === 'saldo') {
+                return m.saldo_liquido;
+            } else {
+                // 'receber' (default)
+                if (metric === 'quantidade') return m.receber.quantidade;
+                if (metric === 'ticket_medio') return m.receber.ticket_medio;
+                return m.receber.valor;
+            }
+        });
+
+        let labelPrefix = 'Receber';
+        if (subview === 'pagar') labelPrefix = 'Pagar';
+        if (subview === 'saldo') labelPrefix = 'Saldo Líquido';
+
+        return {
+            label: `${labelPrefix} ${ano}`,
+            data: values,
+            borderColor: pal.border,
+            backgroundColor: pal.bg,
+            borderWidth: isAnoBase ? 3.5 : 2,
+            tension: 0.35,
+            pointRadius: isAnoBase ? 5 : 3.5,
+            pointHoverRadius: 7,
+            pointBackgroundColor: pal.point,
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            fill: false
+        };
+    });
+
+    chartFinanceiroTrienalInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: mesesLabels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 12, weight: '600' },
+                        usePointStyle: true,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    backgroundColor: theme.tooltipBg,
+                    titleColor: theme.tooltipTitleColor,
+                    bodyColor: theme.tooltipBodyColor,
+                    borderColor: theme.tooltipBorder,
+                    borderWidth: 1,
+                    padding: 12,
+                    boxPadding: 6,
+                    usePointStyle: true,
+                    callbacks: {
+                        label: function(context) {
+                            const val = context.parsed.y;
+                            return ` ${context.dataset.label}: ${formatDashboardValue(val, metric)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: theme.gridColor },
+                    ticks: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 11, weight: '500' }
+                    }
+                },
+                y: {
+                    grid: { color: theme.gridColor },
+                    ticks: {
+                        color: theme.textColor,
+                        font: { family: 'Inter', size: 11 },
+                        callback: function(value) {
+                            if (metric === 'quantidade') return value;
+                            if (Math.abs(value) >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+                            if (Math.abs(value) >= 1000) return (value / 1000).toFixed(0) + 'k';
+                            return value;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Renderiza Tabela Analítica Mensal Financeira
+function renderDashboardFinanceiroTabela(data, metric) {
+    const thead = document.getElementById('theadDashboardFinanceiro');
+    const tbody = document.getElementById('tbodyDashboardFinanceiro');
+    const tfoot = document.getElementById('tfootDashboardFinanceiro');
+    const badgeTableMetric = document.getElementById('badgeFinTableMetric');
+    if (!thead || !tbody || !tfoot) return;
+
+    if (badgeTableMetric) {
+        if (metric === 'quantidade') {
+            badgeTableMetric.textContent = 'Métrica: Quantidade de Títulos/Parcelas';
+            badgeTableMetric.className = 'badge badge-green';
+        } else if (metric === 'ticket_medio') {
+            badgeTableMetric.textContent = 'Métrica: Ticket Médio por Título (R$)';
+            badgeTableMetric.className = 'badge badge-blue';
+        } else {
+            badgeTableMetric.textContent = 'Métrica: Valor Total (R$)';
+            badgeTableMetric.className = 'badge badge-blue';
+        }
+    }
+
+    const anoBase = data.ano_base;
+    const mesesAno = (data.mensal_por_ano && data.mensal_por_ano[String(anoBase)]) || [];
+
+    // Cabeçalho da Tabela
+    thead.innerHTML = `
+        <tr>
+            <th style="width: 120px;">Mês</th>
+            <th style="text-align: right; color: #10b981;">📥 Contas a Receber</th>
+            <th style="text-align: right; color: #ef4444;">📤 Contas a Pagar</th>
+            <th style="text-align: right; color: #f59e0b;">🎯 Ponto de Equilíbrio</th>
+            <th style="text-align: right;">⚖️ Saldo Líquido</th>
+            <th style="text-align: right;">Cobertura (%)</th>
+            <th style="text-align: center;">Status</th>
+        </tr>
+    `;
+
+    let rowsHtml = '';
+    mesesAno.forEach(m => {
+        const valRec = (metric === 'quantidade') ? m.receber.quantidade : (metric === 'ticket_medio' ? m.receber.ticket_medio : m.receber.valor);
+        const valPag = (metric === 'quantidade') ? m.pagar.quantidade : (metric === 'ticket_medio' ? m.pagar.ticket_medio : m.pagar.valor);
+        const valSaldo = valRec - valPag;
+        const cob = m.indice_cobertura;
+        const sign = valSaldo > 0 ? '+' : '';
+        const diffClass = valSaldo > 0 ? 'diff-positive' : (valSaldo < 0 ? 'diff-negative' : 'diff-neutral');
+
+        const statusBadge = valSaldo >= 0
+            ? '<span class="status-superavit">Superávit</span>'
+            : '<span class="status-deficit">Déficit</span>';
+
+        let mesDisplay = m.nome;
+        if (m.is_corrente) {
+            mesDisplay = `<strong>${m.nome}</strong> <span style="font-size:0.7rem; color:#38bdf8;">(Aberto)</span>`;
+        }
+
+        rowsHtml += `
+            <tr>
+                <td>${mesDisplay}</td>
+                <td style="text-align: right; font-weight:600; color:#10b981;">${formatDashboardValue(valRec, metric)}</td>
+                <td style="text-align: right; font-weight:600; color:#ef4444;">${formatDashboardValue(valPag, metric)}</td>
+                <td style="text-align: right; color:#f59e0b;">${formatDashboardValue(valPag, metric)}</td>
+                <td style="text-align: right; font-weight:700;" class="${diffClass}">${sign}${formatDashboardValue(valSaldo, metric)}</td>
+                <td style="text-align: right; font-weight:700;" class="${diffClass}">${cob.toFixed(1)}%</td>
+                <td style="text-align: center;">${statusBadge}</td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = rowsHtml;
+
+    // Totais do Rodapé
+    const tot = (data.totais_por_ano && data.totais_por_ano[String(anoBase)]) || {};
+    const totRec = (metric === 'quantidade') ? tot.receber_quantidade_total : (metric === 'ticket_medio' ? tot.ticket_medio_receber : tot.receber_total);
+    const totPag = (metric === 'quantidade') ? tot.pagar_quantidade_total : (metric === 'ticket_medio' ? tot.ticket_medio_pagar : tot.pagar_total);
+    const totSaldo = totRec - totPag;
+    const totCob = tot.indice_cobertura_total || 0;
+    const signTot = totSaldo > 0 ? '+' : '';
+    const diffClassTot = totSaldo > 0 ? 'diff-positive' : (totSaldo < 0 ? 'diff-negative' : 'diff-neutral');
+
+    tfoot.innerHTML = `
+        <tr style="font-weight: 800; background: rgba(0,0,0,0.25);">
+            <td>TOTAL DO ANO</td>
+            <td style="text-align: right; color:#10b981;">${formatDashboardValue(totRec, metric)}</td>
+            <td style="text-align: right; color:#ef4444;">${formatDashboardValue(totPag, metric)}</td>
+            <td style="text-align: right; color:#f59e0b;">${formatDashboardValue(totPag, metric)}</td>
+            <td style="text-align: right;" class="${diffClassTot}">${signTot}${formatDashboardValue(totSaldo, metric)}</td>
+            <td style="text-align: right;" class="${diffClassTot}">${totCob.toFixed(1)}%</td>
+            <td style="text-align: center;">${totSaldo >= 0 ? '<span class="status-superavit">Superávit</span>' : '<span class="status-deficit">Déficit</span>'}</td>
+        </tr>
+    `;
+}
+
+// Exportação Excel/CSV do Dashboard Financeiro
+function exportDashboardFinanceiroExcel() {
+    if (!dashboardFinanceiroDataCache) {
+        showToast('Nenhum dado financeiro carregado para exportar.', 'error');
+        return;
+    }
+
+    const data = dashboardFinanceiroDataCache;
+    const anoBase = data.ano_base;
+    const metric = dashboardFinCurrentMetric;
+    const mesesAno = (data.mensal_por_ano && data.mensal_por_ano[String(anoBase)]) || [];
+
+    let csv = '\uFEFF'; // UTF-8 BOM
+    csv += `RELATÓRIO FINANCEIRO - CONTAS A PAGAR, RECEBER & PONTO DE EQUILÍBRIO\n`;
+    csv += `Ano Base: ${anoBase};Métrica: ${metric.toUpperCase()};Regime: ${data.regime.toUpperCase()};Data de Geração: ${new Date().toLocaleString('pt-BR')}\n\n`;
+
+    // Cabeçalho
+    csv += `Mês;Contas a Receber;Contas a Pagar;Ponto de Equilíbrio;Saldo Líquido;Índice de Cobertura (%);Status\n`;
+
+    mesesAno.forEach(m => {
+        const valRec = (metric === 'quantidade') ? m.receber.quantidade : (metric === 'ticket_medio' ? m.receber.ticket_medio : m.receber.valor);
+        const valPag = (metric === 'quantidade') ? m.pagar.quantidade : (metric === 'ticket_medio' ? m.pagar.ticket_medio : m.pagar.valor);
+        const valSaldo = valRec - valPag;
+        const cob = m.indice_cobertura.toFixed(1).replace('.', ',') + '%';
+        const st = m.status;
+
+        csv += `${m.nome};${valRec.toString().replace('.', ',')};${valPag.toString().replace('.', ',')};${valPag.toString().replace('.', ',')};${valSaldo.toString().replace('.', ',')};${cob};${st}\n`;
+    });
+
+    const tot = (data.totais_por_ano && data.totais_por_ano[String(anoBase)]) || {};
+    const totRec = (metric === 'quantidade') ? tot.receber_quantidade_total : (metric === 'ticket_medio' ? tot.ticket_medio_receber : tot.receber_total);
+    const totPag = (metric === 'quantidade') ? tot.pagar_quantidade_total : (metric === 'ticket_medio' ? tot.ticket_medio_pagar : tot.pagar_total);
+    const totSaldo = totRec - totPag;
+    const totCob = (tot.indice_cobertura_total || 0).toFixed(1).replace('.', ',') + '%';
+
+    csv += `\nTOTAL DO ANO;${totRec.toString().replace('.', ',')};${totPag.toString().replace('.', ',')};${totPag.toString().replace('.', ',')};${totSaldo.toString().replace('.', ',')};${totCob};${totSaldo >= 0 ? 'Superávit' : 'Déficit'}\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `Dashboard_Financeiro_${anoBase}_${metric}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Planilha financeira exportada com sucesso!', 'success');
+}
+
+// Inicialização dos Event Listeners do Dashboard Financeiro
+(function initDashboardFinanceiroEvents() {
+    // 1. Toggles de Métrica (Pills)
+    const finPills = [
+        document.getElementById('btnFinMetricValor'),
+        document.getElementById('btnFinMetricQtd'),
+        document.getElementById('btnFinMetricTicket')
+    ];
+
+    finPills.forEach(btn => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            finPills.forEach(b => b && b.classList.remove('active'));
+            btn.classList.add('active');
+            dashboardFinCurrentMetric = btn.getAttribute('data-metric') || 'valor';
+
+            if (dashboardFinanceiroDataCache) {
+                renderChartFinanceiroEquilibrio(dashboardFinanceiroDataCache, dashboardFinCurrentMetric);
+                renderChartFinanceiroTrienal(dashboardFinanceiroDataCache, dashboardFinCurrentMetric, dashboardFinTrienalSubView);
+                renderDashboardFinanceiroTabela(dashboardFinanceiroDataCache, dashboardFinCurrentMetric);
+            }
+        });
+    });
+
+    // 2. Subview Toggle do Gráfico Trienal (Receber / Pagar / Saldo)
+    const trienalButtons = [
+        document.getElementById('btnFinTrienalReceber'),
+        document.getElementById('btnFinTrienalPagar'),
+        document.getElementById('btnFinTrienalSaldo')
+    ];
+
+    trienalButtons.forEach(btn => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            trienalButtons.forEach(b => b && b.classList.remove('active'));
+            btn.classList.add('active');
+            dashboardFinTrienalSubView = btn.getAttribute('data-subview') || 'receber';
+
+            if (dashboardFinanceiroDataCache) {
+                renderChartFinanceiroTrienal(dashboardFinanceiroDataCache, dashboardFinCurrentMetric, dashboardFinTrienalSubView);
+            }
+        });
+    });
+
+    // 3. Filtros do Financeiro (Ano Base, Qtd Anos, Regime, Situação)
+    const selAnoBase = document.getElementById('selectFinAnoBase');
+    const selQtdAnos = document.getElementById('selectFinQtdAnos');
+    const selRegime = document.getElementById('selectFinRegime');
+    const selSituacao = document.getElementById('selectFinSituacao');
+
+    [selAnoBase, selQtdAnos, selRegime, selSituacao].forEach(el => {
+        if (el) {
+            el.addEventListener('change', () => {
+                loadDashboardFinanceiroData();
+            });
+        }
+    });
+
+    // 4. Botões de Ação Financeiro
+    const btnRefresh = document.getElementById('btnFinRefresh');
+    if (btnRefresh) {
+        btnRefresh.addEventListener('click', loadDashboardFinanceiroData);
+    }
+
+    const btnExport = document.getElementById('btnFinExportExcel');
+    if (btnExport) {
+        btnExport.addEventListener('click', exportDashboardFinanceiroExcel);
+    }
+
+    const btnPrint = document.getElementById('btnFinPrint');
+    if (btnPrint) {
+        btnPrint.addEventListener('click', () => {
+            window.print();
+        });
+    }
+})();
+
+

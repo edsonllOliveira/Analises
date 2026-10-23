@@ -3050,3 +3050,439 @@ body.printing-vta-report {
     break-inside: avoid !important;
 }
 
+/* ==========================================================================
+   DASHBOARD DE VENDAS - CURVA TRIENAL & TENDÊNCIA
+   ========================================================================== */
+
+.dashboard-controls-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding-top: 0.5rem;
+}
+
+.metric-selector-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.control-label {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.pill-toggle-container {
+    display: inline-flex;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    padding: 3px;
+    border-radius: 9999px;
+    gap: 4px;
+}
+
+.pill-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 1rem;
+    border-radius: 9999px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pill-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.pill-btn.active {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+}
+
+.dashboard-filters-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+/* KPI Cards Grid */
+.dashboard-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.15rem;
+    margin-bottom: 1.5rem;
+}
+
+.kpi-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.15rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: var(--shadow-md);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(59, 130, 246, 0.4);
+    box-shadow: var(--shadow-lg);
+}
+
+.kpi-icon-wrap {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+}
+
+.kpi-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    flex: 1;
+    overflow: hidden;
+}
+
+.kpi-label {
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+
+.kpi-val-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.kpi-val-row h3 {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+
+.kpi-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.kpi-badge.positive {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.kpi-badge.negative {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.kpi-badge.neutral {
+    background: rgba(148, 163, 184, 0.12);
+    color: #cbd5e1;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.kpi-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Dashboard Charts Grid */
+.dashboard-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+    .dashboard-charts-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.chart-header h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.chart-subtitle {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    display: block;
+    margin-top: 0.2rem;
+}
+
+.chart-badges-container {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.badge-year {
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.badge-trend {
+    background: rgba(99, 102, 241, 0.15);
+    color: #a5b4fc;
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 0.25rem 0.65rem;
+    border-radius: 9999px;
+}
+
+/* Monthly Table Highlights */
+.diff-positive {
+    color: #34d399;
+    font-weight: 700;
+}
+
+.diff-negative {
+    color: #f87171;
+    font-weight: 700;
+}
+
+.diff-neutral {
+    color: var(--text-muted);
+}
+
+.col-curr-year {
+    font-weight: 700;
+    color: #38bdf8;
+}
+
+/* ==========================================================================
+   TEMA CLÁSSICO (CLARO DE ALTO CONTRASTE) - DASHBOARD
+   ========================================================================== */
+html[data-theme="classico"] .pill-toggle-container {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+}
+
+html[data-theme="classico"] .pill-btn {
+    color: #475569;
+}
+
+html[data-theme="classico"] .pill-btn:hover {
+    color: #0f172a;
+    background: rgba(0, 0, 0, 0.05);
+}
+
+html[data-theme="classico"] .pill-btn.active {
+    background: #1d4ed8;
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(29, 78, 216, 0.3);
+}
+
+html[data-theme="classico"] .kpi-card {
+    background: #ffffff;
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+html[data-theme="classico"] .kpi-card:hover {
+    border-color: #1d4ed8;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="classico"] .kpi-val-row h3 {
+    color: #0f172a;
+}
+
+html[data-theme="classico"] .kpi-label {
+    color: #475569;
+}
+
+html[data-theme="classico"] .kpi-sub {
+    color: #64748b;
+}
+
+html[data-theme="classico"] .kpi-badge.positive {
+    background: #dcfce7;
+    color: #15803d;
+    border-color: #86efac;
+}
+
+html[data-theme="classico"] .kpi-badge.negative {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+}
+
+html[data-theme="classico"] .kpi-badge.neutral {
+    background: #f1f5f9;
+    color: #475569;
+    border-color: #cbd5e1;
+}
+
+html[data-theme="classico"] .badge-trend {
+    background: #ede9fe;
+    color: #5b21b6;
+    border-color: #c4b5fd;
+}
+
+html[data-theme="classico"] .diff-positive {
+    color: #15803d;
+}
+
+html[data-theme="classico"] .diff-negative {
+    color: #b91c1c;
+}
+
+html[data-theme="classico"] .col-curr-year {
+    color: #0369a1;
+}
+
+/* ==========================================================================
+   SUB-DASHBOARD NAVIGATION & FINANCEIRO
+   ========================================================================== */
+.dashboard-subnav {
+    display: flex;
+    gap: 0.6rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+}
+
+.dashboard-subnav-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dashboard-subnav-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.dashboard-subnav-btn.active {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.4);
+    color: #38bdf8;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+}
+
+.subnav-icon {
+    font-size: 1.1rem;
+}
+
+.status-superavit {
+    background: rgba(16, 185, 129, 0.18);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    font-weight: 700;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.status-deficit {
+    background: rgba(239, 68, 68, 0.18);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    font-weight: 700;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Tema Clássico para Subnav e Status Financeiro */
+html[data-theme="classico"] .dashboard-subnav {
+    border-bottom-color: #cbd5e1;
+}
+
+html[data-theme="classico"] .dashboard-subnav-btn {
+    color: #475569;
+}
+
+html[data-theme="classico"] .dashboard-subnav-btn:hover {
+    color: #0f172a;
+    background: #f1f5f9;
+}
+
+html[data-theme="classico"] .dashboard-subnav-btn.active {
+    background: #dbeafe;
+    border-color: #3b82f6;
+    color: #1d4ed8;
+    box-shadow: 0 2px 4px rgba(29, 78, 216, 0.15);
+}
+
+html[data-theme="classico"] .status-superavit {
+    background: #dcfce7;
+    color: #15803d;
+    border-color: #86efac;
+}
+
+html[data-theme="classico"] .status-deficit {
+    background: #fee2e2;
+    color: #b91c1c;
+    border-color: #fca5a5;
+}
+
+
+

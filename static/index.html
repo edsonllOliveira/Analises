@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>try{var t=localStorage.getItem('appTheme');if(t==='classico')document.documentElement.setAttribute('data-theme','classico');}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=1.6.1">
+    <link rel="stylesheet" href="style.css?v=1.8.0">
 </head>
 <body>
 
@@ -81,6 +81,10 @@
                 <button id="tabVTA" class="module-tab">
                     <span class="tab-icon">🔬</span>
                     <span>Análise de VTA</span>
+                </button>
+                <button id="tabDashboard" class="module-tab">
+                    <span class="tab-icon">📈</span>
+                    <span>Dashboards</span>
                 </button>
             </div>
         </div>
@@ -1119,6 +1123,462 @@
                 </div>
             </section>
         </div>
+
+        <!-- Section Dashboards -->
+        <div id="sectionDashboard" class="tab-content hidden">
+            <!-- Sub-Dashboard Navigation Bar -->
+            <div class="dashboard-subnav no-print">
+                <button id="btnSubnavVendas" class="dashboard-subnav-btn active">
+                    <span class="subnav-icon">🛒</span>
+                    <span>Vendas de Ordens de Serviço (OS)</span>
+                </button>
+                <button id="btnSubnavFinanceiro" class="dashboard-subnav-btn">
+                    <span class="subnav-icon">💳</span>
+                    <span>Contas a Pagar & Receber (Ponto de Equilíbrio)</span>
+                </button>
+            </div>
+
+            <!-- SUB-DASHBOARD 1: VENDAS DE OS -->
+            <div id="subdashVendas">
+                <!-- Header & Filter Card -->
+                <section class="card search-card no-print">
+                    <div class="card-header" style="margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <h2>📈 Dashboard de Vendas - Curva Trienal & Tendência</h2>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                Análise consolidada das Ordens de Serviço (OS) de vendas comparando os últimos 3 anos mês a mês e identificando a tendência estatística do ano corrente.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                            <button id="btnDashboardExportExcel" class="btn btn-secondary" style="padding: 0.6rem 1rem; font-weight: 600;" title="Exportar dados consolidados em planilha Excel">
+                                📥 Exportar Planilha
+                            </button>
+                            <button id="btnDashboardPrint" class="btn btn-secondary" style="padding: 0.6rem 1rem; font-weight: 600;" title="Imprimir relatório do dashboard">
+                                🖨️ Imprimir
+                            </button>
+                            <button id="btnDashboardRefresh" class="btn btn-primary" style="padding: 0.6rem 1.25rem; font-weight: 600;" title="Recarregar dados do banco Firebird">
+                                🔄 Atualizar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filters & Metric Toggle Bar -->
+                    <div class="dashboard-controls-bar">
+                        <!-- Metric Pill Selector -->
+                        <div class="metric-selector-group">
+                            <span class="control-label">Métrica Visualizada:</span>
+                            <div class="pill-toggle-container">
+                                <button id="btnMetricValor" class="pill-btn active" data-metric="valor">
+                                    <span>💰</span> Valor Faturado (R$)
+                                </button>
+                                <button id="btnMetricQtd" class="pill-btn" data-metric="quantidade">
+                                    <span>📦</span> Quantidade de OS
+                                </button>
+                                <button id="btnMetricTicket" class="pill-btn" data-metric="ticket_medio">
+                                    <span>🏷️</span> Ticket Médio (R$)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Operation & Year Filter Controls -->
+                        <div class="dashboard-filters-row">
+                            <div class="input-group">
+                                <label for="selectDashboardTipo">Tipo de Operação</label>
+                                <select id="selectDashboardTipo" class="db-select">
+                                    <option value="vendas" selected>🏷️ Apenas Vendas Diretas (Padrão)</option>
+                                    <option value="amplo">📊 Faturamento Amplo (Vendas, Bonificações, etc.)</option>
+                                    <option value="todos">🌐 Todas as Operações</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="selectDashboardAnoBase">Ano de Referência</label>
+                                <select id="selectDashboardAnoBase" class="db-select">
+                                    <option value="2026" selected>2026 (Ano Atual)</option>
+                                    <option value="2025">2025</option>
+                                    <option value="2024">2024</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="selectDashboardQtdAnos">Comparativo</label>
+                                <select id="selectDashboardQtdAnos" class="db-select">
+                                    <option value="3" selected>3 Anos (Trienal)</option>
+                                    <option value="2">2 Anos (Bienal)</option>
+                                    <option value="4">4 Anos</option>
+                                    <option value="5">5 Anos</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group" style="display: flex; align-items: flex-end;">
+                                <label class="checkbox-container" style="margin-bottom: 0.5rem;">
+                                    <input type="checkbox" id="chkDashboardApenasFaturadas" checked>
+                                    <span class="checkmark"></span>
+                                    <span style="font-size: 0.85rem; font-weight: 500;">Apenas Concluídas / Faturadas</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- KPI Cards Grid -->
+                <div id="dashboardKpiGrid" class="dashboard-kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">💰</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Faturamento Acumulado</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiFaturamentoTotal">R$ 0,00</h3>
+                                <span id="kpiBadgeYoYFaturamento" class="kpi-badge neutral">0.0% YoY</span>
+                            </div>
+                            <span id="kpiSubFaturamento" class="kpi-sub">vs mesmo período ano anterior</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">📦</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Volume de OS Emitidas</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiTotalOS">0 OS</h3>
+                                <span id="kpiBadgeYoYOS" class="kpi-badge neutral">0.0% YoY</span>
+                            </div>
+                            <span id="kpiSubOS" class="kpi-sub">vs mesmo período ano anterior</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">🏷️</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Ticket Médio por OS</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiTicketMedio">R$ 0,00</h3>
+                            </div>
+                            <span class="kpi-sub">Média faturada por Ordem de Serviço</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">🏆</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Mês Recorde do Ano</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiMelhorMes">---</h3>
+                            </div>
+                            <span id="kpiSubMelhorMes" class="kpi-sub">R$ 0,00 • 0 OS</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(14, 165, 233, 0.15); color: #0ea5e9;">🎯</div>
+                        <div class="kpi-content">
+                            <span id="kpiLabelMesAtual" class="kpi-label">Mês Atual (Em Andamento)</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiMesAtualValor">R$ 0,00</h3>
+                            </div>
+                            <span id="kpiSubMesAtual" class="kpi-sub">Projeção: R$ 0,00 pró-rata</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(236, 72, 153, 0.15); color: #ec4899;">🔮</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Projeção Fechamento do Ano</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiProjecaoFechamento">R$ 0,00</h3>
+                            </div>
+                            <span class="kpi-sub">Estimativa com tendência OLS</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Section (Grid: Multi-Year Line Chart & Current Year Trend Combo Chart) -->
+                <div class="dashboard-charts-grid">
+                    <!-- Chart 1: Curva Trienal de Vendas -->
+                    <div class="card chart-card">
+                        <div class="chart-header">
+                            <div>
+                                <h3 id="titleChartCurvaTrienal">📊 Curva de Vendas Comparativa (Últimos 3 Anos)</h3>
+                                <span class="chart-subtitle">Comparativo mês a mês das OS de vendas com linhas individuais por ano</span>
+                            </div>
+                            <div id="chartTrienalBadges" class="chart-badges-container">
+                                <!-- Injected dynamically: Badges with year colors -->
+                            </div>
+                        </div>
+                        <div class="chart-canvas-container" style="position: relative; height: 380px; width: 100%;">
+                            <canvas id="chartCurvaTrienal"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 2: Ano Corrente (Barras) & Linha de Tendência -->
+                    <div class="card chart-card">
+                        <div class="chart-header">
+                            <div>
+                                <h3 id="titleChartAnoCorrente">📈 Ano Corrente & Linha de Tendência</h3>
+                                <span class="chart-subtitle">Barras verticais mensais com linha de tendência calculada por regressão linear</span>
+                            </div>
+                            <div class="chart-badges-container">
+                                <span id="badgeTendenciaTaxa" class="badge badge-trend">Tendência: Calculando...</span>
+                            </div>
+                        </div>
+                        <div class="chart-canvas-container" style="position: relative; height: 380px; width: 100%;">
+                            <canvas id="chartAnoCorrenteTendencia"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Monthly Comparison Table -->
+                <section class="card table-card" style="margin-top: 1.5rem;">
+                    <div class="card-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <div>
+                            <h3>📋 Tabela Analítica de Vendas Mês a Mês</h3>
+                            <span style="font-size: 0.85rem; color: var(--text-secondary);">Detalhamento numérico mensal com comparativo entre anos e variações</span>
+                        </div>
+                        <span id="badgeTableMetric" class="badge badge-blue">Métrica: Valor Total (R$)</span>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="data-table" id="tableDashboardMensal">
+                            <thead id="theadDashboardMensal">
+                                <!-- Injected dynamically -->
+                            </thead>
+                            <tbody id="tbodyDashboardMensal">
+                                <!-- Injected dynamically -->
+                            </tbody>
+                            <tfoot id="tfootDashboardMensal">
+                                <!-- Injected dynamically -->
+                            </tfoot>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- SUB-DASHBOARD 2: FINANCEIRO (PAGAR x RECEBER & PONTO DE EQUILÍBRIO) -->
+            <div id="subdashFinanceiro" class="hidden">
+                <!-- Header & Filter Card -->
+                <section class="card search-card no-print">
+                    <div class="card-header" style="margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <h2>💳 Dashboard Financeiro - Contas a Pagar, Receber & Ponto de Equilíbrio</h2>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                Confronto analítico mensal entre Entradas (Receber) e Saídas (Pagar), apuração do Ponto de Equilíbrio financeiro (Break-Even Point) e evolução trienal.
+                            </p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                            <button id="btnFinExportExcel" class="btn btn-secondary" style="padding: 0.6rem 1rem; font-weight: 600;" title="Exportar dados financeiros em planilha Excel">
+                                📥 Exportar Planilha
+                            </button>
+                            <button id="btnFinPrint" class="btn btn-secondary" style="padding: 0.6rem 1rem; font-weight: 600;" title="Imprimir dashboard financeiro">
+                                🖨️ Imprimir
+                            </button>
+                            <button id="btnFinRefresh" class="btn btn-primary" style="padding: 0.6rem 1.25rem; font-weight: 600;" title="Recarregar dados do banco Firebird">
+                                🔄 Atualizar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filters & Metric Toggle Bar -->
+                    <div class="dashboard-controls-bar">
+                        <!-- Metric Pill Selector -->
+                        <div class="metric-selector-group">
+                            <span class="control-label">Métrica Visualizada:</span>
+                            <div class="pill-toggle-container">
+                                <button id="btnFinMetricValor" class="pill-btn active" data-metric="valor">
+                                    <span>💰</span> Valor Total (R$)
+                                </button>
+                                <button id="btnFinMetricQtd" class="pill-btn" data-metric="quantidade">
+                                    <span>📦</span> Qtd de Títulos/Parcelas
+                                </button>
+                                <button id="btnFinMetricTicket" class="pill-btn" data-metric="ticket_medio">
+                                    <span>🏷️</span> Ticket Médio (R$)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Financial Filters Row -->
+                        <div class="dashboard-filters-row">
+                            <div class="input-group">
+                                <label for="selectFinRegime">Regime de Data</label>
+                                <select id="selectFinRegime" class="db-select">
+                                    <option value="vencimento" selected>📅 Por Data de Vencimento (Previsto/Competência)</option>
+                                    <option value="liquidacao">💵 Por Data de Liquidação (Efetivo/Caixa Baixado)</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="selectFinSituacao">Situação dos Títulos</label>
+                                <select id="selectFinSituacao" class="db-select">
+                                    <option value="todos" selected>🌐 Todos os Títulos (Padrão)</option>
+                                    <option value="liquidados">✅ Apenas Baixados / Liquidados</option>
+                                    <option value="abertos">⏳ Apenas Em Aberto / A Vencer</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="selectFinAnoBase">Ano de Referência</label>
+                                <select id="selectFinAnoBase" class="db-select">
+                                    <option value="2026" selected>2026 (Ano Atual)</option>
+                                    <option value="2025">2025</option>
+                                    <option value="2024">2024</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="selectFinQtdAnos">Comparativo</label>
+                                <select id="selectFinQtdAnos" class="db-select">
+                                    <option value="3" selected>3 Anos (Trienal)</option>
+                                    <option value="2">2 Anos (Bienal)</option>
+                                    <option value="4">4 Anos</option>
+                                    <option value="5">5 Anos</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- KPI Cards Grid (Financial) -->
+                <div id="dashboardFinKpiGrid" class="dashboard-kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">📥</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Contas a Receber</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiFinReceberTotal">R$ 0,00</h3>
+                                <span id="kpiBadgeYoYReceber" class="kpi-badge neutral">0.0% YoY</span>
+                            </div>
+                            <span id="kpiSubReceber" class="kpi-sub">Total de receitas previstas/geradas</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">📤</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Contas a Pagar</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiFinPagarTotal">R$ 0,00</h3>
+                                <span id="kpiBadgeYoYPagar" class="kpi-badge neutral">0.0% YoY</span>
+                            </div>
+                            <span id="kpiSubPagar" class="kpi-sub">Total de despesas/compromissos</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">⚖️</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Saldo Líquido Operacional</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiFinSaldoLiquido">R$ 0,00</h3>
+                                <span id="kpiBadgeSaldoStatus" class="kpi-badge neutral">Status</span>
+                            </div>
+                            <span id="kpiSubSaldo" class="kpi-sub">Receber menos Pagar</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">🎯</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Índice Ponto de Equilíbrio</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiFinCobertura">0.0%</h3>
+                                <span id="kpiBadgeEquilibrio" class="kpi-badge neutral">Breakeven</span>
+                            </div>
+                            <span id="kpiSubEquilibrio" class="kpi-sub">Cobertura de Custos (Meta: 100%+)</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(14, 165, 233, 0.15); color: #0ea5e9;">📅</div>
+                        <div class="kpi-content">
+                            <span id="kpiFinLabelMesAtual" class="kpi-label">Mês Atual (Em Aberto)</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiFinMesAtualSaldo">R$ 0,00</h3>
+                            </div>
+                            <span id="kpiFinSubMesAtual" class="kpi-sub">Projeção: R$ 0,00</span>
+                        </div>
+                    </div>
+
+                    <div class="kpi-card">
+                        <div class="kpi-icon-wrap" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">⏳</div>
+                        <div class="kpi-content">
+                            <span class="kpi-label">Pendentes em Aberto</span>
+                            <div class="kpi-val-row">
+                                <h3 id="kpiFinAbertoSaldo">R$ 0,00</h3>
+                            </div>
+                            <span id="kpiFinSubAberto" class="kpi-sub">Rec: R$ 0 | Pag: R$ 0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Section (Grid: Break-Even Combo & Multi-Year Comparative) -->
+                <div class="dashboard-charts-grid">
+                    <!-- Chart 1: Confronto Receber x Pagar & Linha de Ponto de Equilíbrio -->
+                    <div class="card chart-card">
+                        <div class="chart-header">
+                            <div>
+                                <h3 id="titleChartFinanceiroEquilibrio">⚖️ Confronto Receber x Pagar & Linha de Ponto de Equilíbrio</h3>
+                                <span class="chart-subtitle">Barras de Receber e Pagar confrontadas com a linha de ponto de equilíbrio e curva de resultado líquido</span>
+                            </div>
+                            <div class="chart-badges-container">
+                                <span id="badgeFinEquilibrioStatus" class="badge badge-trend">Ponto de Equilíbrio: Breakeven</span>
+                            </div>
+                        </div>
+                        <div class="chart-canvas-container" style="position: relative; height: 380px; width: 100%;">
+                            <canvas id="chartFinanceiroEquilibrio"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Chart 2: Curvas Trienais Comparativas de Pagar & Receber -->
+                    <div class="card chart-card">
+                        <div class="chart-header">
+                            <div>
+                                <h3 id="titleChartFinanceiroTrienal">📊 Curvas Trienais Comparativas (Últimos 3 Anos)</h3>
+                                <span class="chart-subtitle">Evolução histórica mês a mês comparando 2024, 2025 e 2026</span>
+                            </div>
+                            <!-- Subview Toggle -->
+                            <div class="pill-toggle-container" style="padding: 2px;">
+                                <button id="btnFinTrienalReceber" class="pill-btn active" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;" data-subview="receber">
+                                    📥 Receber
+                                </button>
+                                <button id="btnFinTrienalPagar" class="pill-btn" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;" data-subview="pagar">
+                                    📤 Pagar
+                                </button>
+                                <button id="btnFinTrienalSaldo" class="pill-btn" style="padding: 0.35rem 0.75rem; font-size: 0.76rem;" data-subview="saldo">
+                                    ⚖️ Saldo Líquido
+                                </button>
+                            </div>
+                        </div>
+                        <div class="chart-canvas-container" style="position: relative; height: 380px; width: 100%;">
+                            <canvas id="chartFinanceiroTrienal"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Monthly Financial Table -->
+                <section class="card table-card" style="margin-top: 1.5rem;">
+                    <div class="card-header" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <div>
+                            <h3>📋 Tabela Analítica Financeira Mês a Mês</h3>
+                            <span style="font-size: 0.85rem; color: var(--text-secondary);">Detalhamento de receitas, despesas, ponto de equilíbrio, saldo líquido e índice de cobertura</span>
+                        </div>
+                        <span id="badgeFinTableMetric" class="badge badge-blue">Métrica: Valor Total (R$)</span>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="data-table" id="tableDashboardFinanceiro">
+                            <thead id="theadDashboardFinanceiro">
+                                <!-- Injected dynamically -->
+                            </thead>
+                            <tbody id="tbodyDashboardFinanceiro">
+                                <!-- Injected dynamically -->
+                            </tbody>
+                            <tfoot id="tfootDashboardFinanceiro">
+                                <!-- Injected dynamically -->
+                            </tfoot>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
     </main>
 
     <!-- Edit Modal Workspace -->
@@ -1450,6 +1910,6 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="app.js?v=1.9.0"></script>
+    <script src="app.js?v=2.1.0"></script>
 </body>
 </html>
